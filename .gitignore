@@ -1,0 +1,78 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
+lib/
+lib64/
+wheels/
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+env/
+
+# Environment variables — NEVER commit secrets
+.env
+.env.*
+!.env.example
+
+# Testing
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.tox/
+
+# Type checking / linting
+.mypy_cache/
+.ruff_cache/
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# LangSmith / LangGraph traces
+.langsmith/
+
+# Playwright browser binaries
+playwright-report/
+
+# Database
+*.sqlite
+*.db
+
+# Logs
+*.log
+logs/
+
+# Temp / scratch
+scratch/
+tmp/
+
+# Word documents and temp lock files
+*.docx
+*.doc
+~$*
