@@ -7,7 +7,7 @@ async def scout_stores(
     brand_profile: BrandProfile,
     vertical_tag: str,
     target_location: str,
-    max_stores: int = 50,
+    max_stores: int = 5,
 ) -> list[dict]:
     """Run the scout agent and return a list of store candidate dicts.
 
