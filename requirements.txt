@@ -15,6 +15,8 @@ alembic
 pydantic>=2.0
 pydantic-settings
 redis
+celery[redis]
+markdown
 structlog
 pytest
 pytest-asyncio

@@ -1,0 +1,117 @@
+from pathlib import Path
+
+import markdown as md
+from celery.result import AsyncResult
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
+
+from app.celery_app import celery_app
+from app.models.store_candidate import ScoredStore
+from app.tasks.discovery import run_phase1_discovery
+
+router = APIRouter(prefix="/discovery", tags=["discovery"])
+
+
+# ---------------------------------------------------------------------------
+# Request / response models
+# ---------------------------------------------------------------------------
+
+class DiscoveryStartRequest(BaseModel):
+    brand_url: str
+    vertical_tag: str
+    location: str
+    tenant_id: str = Field(default="default")
+
+
+class DiscoveryStartResponse(BaseModel):
+    task_id: str
+    status: str = "processing"
+
+
+class DiscoveryStatusResponse(BaseModel):
+    status: str          # "processing" | "complete" | "error"
+    progress: int        # 0–100
+
+
+class DiscoveryReportResponse(BaseModel):
+    stores: list[ScoredStore]
+    report_html: str
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _celery_state_to_status(state: str) -> tuple[str, int]:
+    """Map Celery task states to (status, progress) pairs."""
+    mapping = {
+        "PENDING":  ("processing", 0),
+        "RECEIVED": ("processing", 5),
+        "STARTED":  ("processing", 10),
+        "PROGRESS": ("processing", 50),
+        "SUCCESS":  ("complete",  100),
+        "FAILURE":  ("error",       0),
+        "REVOKED":  ("error",       0),
+        "RETRY":    ("processing", 10),
+    }
+    return mapping.get(state, ("processing", 0))
+
+
+def _build_report_html(report_url: str) -> str:
+    if not report_url:
+        return "<p>Report not available.</p>"
+    path = Path(report_url)
+    if not path.exists():
+        return "<p>Report not available.</p>"
+    markdown_text = path.read_text(encoding="utf-8")
+    return md.markdown(markdown_text, extensions=["tables", "fenced_code"])
+
+
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
+
+@router.post("/start", response_model=DiscoveryStartResponse, status_code=202)
+async def start_discovery(body: DiscoveryStartRequest) -> DiscoveryStartResponse:
+    """Kick off the Phase 1 pipeline asynchronously. Poll /status for updates."""
+    task = run_phase1_discovery.delay(
+        brand_url=body.brand_url,
+        vertical_tag=body.vertical_tag,
+        location=body.location,
+        tenant_id=body.tenant_id,
+    )
+    return DiscoveryStartResponse(task_id=task.id)
+
+
+@router.get("/{task_id}/status", response_model=DiscoveryStatusResponse)
+async def get_discovery_status(task_id: str) -> DiscoveryStatusResponse:
+    """Poll until status == 'complete' or 'error'."""
+    result = AsyncResult(task_id, app=celery_app)
+    status, progress = _celery_state_to_status(result.state)
+
+    # PROGRESS tasks carry a custom meta dict with finer-grained progress
+    if result.state == "PROGRESS" and isinstance(result.info, dict):
+        progress = result.info.get("progress", 50)
+
+    return DiscoveryStatusResponse(status=status, progress=progress)
+
+
+@router.get("/{task_id}/report", response_model=DiscoveryReportResponse)
+async def get_discovery_report(task_id: str) -> DiscoveryReportResponse:
+    """Retrieve final stores and HTML report. Call only after status == 'complete'."""
+    result = AsyncResult(task_id, app=celery_app)
+
+    if result.state == "FAILURE":
+        raise HTTPException(status_code=500, detail="Discovery task failed.")
+
+    if result.state != "SUCCESS":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Task not complete yet (state={result.state}). Poll /status first.",
+        )
+
+    payload: dict = result.result
+    stores = [ScoredStore(**s) for s in payload.get("scored_stores", [])]
+    report_html = _build_report_html(payload.get("report_url", ""))
+
+    return DiscoveryReportResponse(stores=stores, report_html=report_html)
