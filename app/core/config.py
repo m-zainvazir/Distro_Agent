@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     langsmith_api_key: str = ""
     langsmith_project: str = "distroagent"
     google_maps_api_key: str = ""
+    vision_score_threshold: float = 8.0
 
 
 settings = Settings()
