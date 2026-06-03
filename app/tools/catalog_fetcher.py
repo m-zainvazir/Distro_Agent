@@ -173,7 +173,7 @@ async def scrape_with_playwright(url: str) -> tuple[list[dict], str]:
         soup = BeautifulSoup(html, "html.parser")
 
         # Guard: if the page returned is a bot-challenge/blank page, raise early
-        page_title = soup.title.string.strip() if soup.title else ""
+        page_title = soup.title.string.strip() if soup.title and soup.title.string else ""
         domain = urlparse(url).netloc.replace("www.", "")
         if page_title.lower() in ("", domain.lower()):
             raise BrandExtractionError(
@@ -234,7 +234,7 @@ async def scrape_with_playwright(url: str) -> tuple[list[dict], str]:
         if not about_text:
             meta = soup.select_one('meta[name="description"]')
             if meta:
-                about_text = meta.get("content", "")[:4000]
+                about_text = str(meta.get("content") or "")[:4000]
 
         logger.info("playwright_scrape_complete", url=url, products_found=len(products))
         return products, about_text

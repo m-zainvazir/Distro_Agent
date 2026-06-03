@@ -6,7 +6,6 @@ from typing_extensions import TypedDict
 from langgraph.graph import END, StateGraph
 
 from app.core.config import settings
-from app.core.errors import BrandExtractionError
 from app.core.logging import logger
 from app.models.brand_profile import BrandProfile
 from app.tools.google_maps import get_place_details, search_places
@@ -138,6 +137,7 @@ async def generate_queries_node(state: ScoutState) -> dict:
         errors.append(f"LLM query generation failed: {exc}")
         return {"errors": errors, "search_queries": []}
 
+    assert response.usage is not None
     token_usage = {
         "input_tokens": response.usage.prompt_tokens,
         "output_tokens": response.usage.completion_tokens,
@@ -150,7 +150,7 @@ async def generate_queries_node(state: ScoutState) -> dict:
         output_tokens=token_usage["output_tokens"],
     )
 
-    parsed: dict = json.loads(response.choices[0].message.content)
+    parsed: dict = json.loads(response.choices[0].message.content or "")
     queries: list[str] = parsed.get("queries", [])
 
     if not queries:
@@ -178,10 +178,9 @@ async def search_maps_node(state: ScoutState) -> dict:
             break
         try:
             results = await search_places(query, target_location, api_key)
-        except BrandExtractionError as exc:
+        except Exception as exc:
             logger.error("search_places_failed", query=query, error=str(exc))
             errors.append(f"Google Maps search failed for query '{query}': {exc}")
-            # Propagate as total failure — no partial results
             return {"raw_places": [], "errors": errors}
 
         for place in results:
@@ -212,7 +211,7 @@ async def enrich_stores_node(state: ScoutState) -> dict:
             try:
                 details = await get_place_details(place_id, api_key)
                 merged.update(details)
-            except BrandExtractionError as exc:
+            except Exception as exc:
                 logger.warning(
                     "enrich_store_failed",
                     place_id=place_id,

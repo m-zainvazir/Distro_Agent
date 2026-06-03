@@ -54,7 +54,7 @@ _FAKE_BRAND = BrandProfile(
     embedding_vector=[0.1] * 384,
 )
 
-_FAKE_SCOUT_RAW = [
+_FAKE_SCOUT_RAW: list[dict] = [
     {
         "google_place_id": "ChIJ001",
         "name": "Botanica Studio",

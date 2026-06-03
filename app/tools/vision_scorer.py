@@ -75,6 +75,7 @@ async def score_visual_vibe(store: StoreCandidate, brand: BrandProfile) -> Dimen
             data_used=[],
         )
 
+    assert response.usage is not None
     logger.info(
         "groq_token_usage",
         node="vision_scorer",
@@ -84,7 +85,7 @@ async def score_visual_vibe(store: StoreCandidate, brand: BrandProfile) -> Dimen
     )
 
     try:
-        parsed = json.loads(response.choices[0].message.content)
+        parsed = json.loads(response.choices[0].message.content or "")
         score = float(parsed.get("vibe_score", 5.0))
         score = max(0.0, min(10.0, score))
         return DimensionScore(

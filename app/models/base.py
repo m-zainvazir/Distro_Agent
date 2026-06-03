@@ -1,7 +1,5 @@
 # app/models/base.py
-import uuid
-from datetime import datetime
-from sqlalchemy import Column, String, DateTime, func
+from sqlalchemy import Column, DateTime, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase
 

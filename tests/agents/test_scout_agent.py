@@ -84,7 +84,7 @@ def _make_place(place_id: str, name: str, rating: float = 4.2) -> dict:
     return {
         "place_id": place_id,
         "name": name,
-        "formatted_address": f"456 Fake St, Brooklyn, NY 11201",
+        "formatted_address": "456 Fake St, Brooklyn, NY 11201",
         "types": ["store", "establishment"],
         "rating": rating,
         "user_ratings_total": 30,

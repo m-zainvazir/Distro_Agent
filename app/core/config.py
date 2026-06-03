@@ -16,4 +16,4 @@ class Settings(BaseSettings):
     vision_score_threshold: float = 8.0
 
 
-settings = Settings()
+settings = Settings()  # type: ignore[call-arg]

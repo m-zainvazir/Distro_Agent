@@ -48,6 +48,7 @@ async def analyze_brand_aesthetics(
         max_tokens=1024,
     )
 
+    assert response.usage is not None
     token_usage = {
         "input_tokens": response.usage.prompt_tokens,
         "output_tokens": response.usage.completion_tokens,
@@ -59,5 +60,5 @@ async def analyze_brand_aesthetics(
         output_tokens=token_usage["output_tokens"],
     )
 
-    analysis: dict = json.loads(response.choices[0].message.content)
+    analysis: dict = json.loads(response.choices[0].message.content or "")
     return analysis, token_usage

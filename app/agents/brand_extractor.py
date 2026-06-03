@@ -37,6 +37,17 @@ class BrandExtractorState(TypedDict):
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _safe_float(value: object, default: float = 0.0) -> float:
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+
+
+# ---------------------------------------------------------------------------
 # Nodes
 # ---------------------------------------------------------------------------
 
@@ -82,7 +93,7 @@ async def fetch_catalog_node(state: BrandExtractorState) -> dict:
             "image_urls": image_urls[:10],
             "error": None,
         }
-    except BrandExtractionError as exc:
+    except Exception as exc:
         return {
             "raw_catalog": [],
             "about_text": "",
@@ -92,9 +103,13 @@ async def fetch_catalog_node(state: BrandExtractorState) -> dict:
 
 
 async def download_images_node(state: BrandExtractorState) -> dict:
-    downloaded = await download_images(state["image_urls"], max_images=5)
-    colors = extract_colors_from_images(downloaded)
-    return {"downloaded_images": downloaded, "primary_colors": colors}
+    try:
+        downloaded = await download_images(state["image_urls"], max_images=5)
+        colors = extract_colors_from_images(downloaded)
+        return {"downloaded_images": downloaded, "primary_colors": colors}
+    except Exception as exc:
+        logger.warning("download_images_failed", error=str(exc))
+        return {"downloaded_images": [], "primary_colors": []}
 
 
 async def analyze_aesthetics_node(state: BrandExtractorState) -> dict:
@@ -103,6 +118,12 @@ async def analyze_aesthetics_node(state: BrandExtractorState) -> dict:
             about_text=state["about_text"],
             products=state["raw_catalog"],
             vertical_tag=state["vertical_tag"],
+        )
+        logger.info(
+            "groq_token_usage",
+            node="analyze_aesthetics",
+            input_tokens=token_usage.get("input_tokens", 0),
+            output_tokens=token_usage.get("output_tokens", 0),
         )
         return {"analysis": analysis, "token_usage": token_usage}
     except Exception as exc:
@@ -117,8 +138,12 @@ async def generate_embedding_node(state: BrandExtractorState) -> dict:
         f"{' '.join(analysis.get('aesthetic_keywords', []))} "
         f"{analysis.get('brand_voice_description', '')}"
     )
-    embedding = await generate_brand_embedding(profile_text)
-    return {"embedding": embedding}
+    try:
+        embedding = await generate_brand_embedding(profile_text)
+        return {"embedding": embedding}
+    except Exception as exc:
+        logger.error("embedding_generation_failed", error=str(exc))
+        return {"embedding": []}
 
 
 async def build_profile_node(state: BrandExtractorState) -> dict:
@@ -126,22 +151,26 @@ async def build_profile_node(state: BrandExtractorState) -> dict:
     embedding = state.get("embedding", [])
     raw_images = state["image_urls"][:5]
 
-    profile = BrandProfile(
-        brand_name=analysis.get("brand_name", ""),
-        tagline=analysis.get("tagline", ""),
-        primary_colors=state.get("primary_colors", []),
-        aesthetic_keywords=analysis.get("aesthetic_keywords", []),
-        product_categories=analysis.get("product_categories", []),
-        price_range=(
-            float(analysis.get("price_range_min", 0.0)),
-            float(analysis.get("price_range_max", 0.0)),
-        ),
-        brand_voice_description=analysis.get("brand_voice_description", ""),
-        wholesale_readiness_score=float(analysis.get("wholesale_readiness_score", 0.0)),
-        raw_product_images=raw_images,
-        embedding_vector=embedding,
-    )
-    return {"brand_profile": profile}
+    try:
+        profile = BrandProfile(
+            brand_name=analysis.get("brand_name", ""),
+            tagline=analysis.get("tagline", ""),
+            primary_colors=state.get("primary_colors", []),
+            aesthetic_keywords=analysis.get("aesthetic_keywords", []),
+            product_categories=analysis.get("product_categories", []),
+            price_range=(
+                _safe_float(analysis.get("price_range_min", 0.0)),
+                _safe_float(analysis.get("price_range_max", 0.0)),
+            ),
+            brand_voice_description=analysis.get("brand_voice_description", ""),
+            wholesale_readiness_score=_safe_float(analysis.get("wholesale_readiness_score", 0.0)),
+            raw_product_images=raw_images,
+            embedding_vector=embedding,
+        )
+        return {"brand_profile": profile}
+    except Exception as exc:
+        logger.error("build_profile_failed", error=str(exc))
+        return {"brand_profile": None, "error": str(exc)}
 
 
 async def build_partial_profile_node(state: BrandExtractorState) -> dict:

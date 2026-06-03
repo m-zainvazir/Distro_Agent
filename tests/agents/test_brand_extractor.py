@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.core.errors import BrandExtractionError, UnsupportedPlatformError
+from app.core.errors import BrandExtractionError
 from app.models.brand_profile import BrandProfile
 from app.services.brand_service import extract_brand
 
@@ -211,16 +211,26 @@ async def test_discovery_fails():
 
 
 @pytest.mark.asyncio
-async def test_invalid_url_raises():
-    with patch(
-        _DETECT,
-        new=AsyncMock(side_effect=UnsupportedPlatformError(url="https://amazon.com")),
+async def test_unknown_url_uses_generic_scraper():
+    """Non-Shopify/Etsy URLs now route to Playwright generic scraper instead of raising."""
+    with (
+        patch(_DETECT, new=AsyncMock(return_value="generic")),
+        patch(_PLAYWRIGHT, new=AsyncMock(return_value=(_FAKE_PRODUCTS_GENERIC, "Generic site."))),
+        patch(_DOWNLOAD, new=AsyncMock(return_value=["base64imagedata=="])),
+        patch(_COLORS, return_value=[]),
+        patch(
+            _ANALYZE,
+            new=AsyncMock(return_value=(_FAKE_ANALYSIS, {"input_tokens": 200, "output_tokens": 100})),
+        ),
+        patch(_EMBED, new=AsyncMock(return_value=_FAKE_EMBEDDING)),
     ):
-        with pytest.raises(BrandExtractionError):
-            await extract_brand(
-                brand_url="https://amazon.com",
-                vertical_tag="home_goods",
-            )
+        profile = await extract_brand(
+            brand_url="https://amazon.com",
+            vertical_tag="home_goods",
+        )
+
+    assert isinstance(profile, BrandProfile)
+    assert profile.brand_name == "Bloom & Co"
 
 
 @pytest.mark.asyncio

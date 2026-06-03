@@ -14,7 +14,6 @@ async def score_stores(
     initial_state: AnalystState = {
         "brand_profile": brand_profile,
         "store_candidates": capped,
-        "current_index": 0,
         "scores_in_progress": [],
         "vision_calls_made": 0,
         "total_token_usage": {"input": 0, "output": 0},

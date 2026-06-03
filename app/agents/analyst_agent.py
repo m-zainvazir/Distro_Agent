@@ -30,7 +30,6 @@ class AnalystState(TypedDict):
     brand_profile: BrandProfile
     store_candidates: list[StoreCandidate]
 
-    current_index: int
     scores_in_progress: list[ScoredStore]
 
     vision_calls_made: int
@@ -55,6 +54,7 @@ _TEXT_WEIGHTS = {
 # Groq llama-3.3-70b pricing: $0.59 / $0.79 per 1M tokens
 _COST_PER_1K_INPUT = 0.00059
 _COST_PER_1K_OUTPUT = 0.00079
+_VISION_BUDGET_USD = 0.50
 
 
 def _compute_text_score(
@@ -94,33 +94,38 @@ async def score_text_dimensions_node(state: AnalystState) -> dict:
     brand: BrandProfile = state["brand_profile"]
     candidates: list[StoreCandidate] = state["store_candidates"]
     scores_in_progress: list[ScoredStore] = []
+    errors: list[str] = list(state.get("errors", []))
 
     for store in candidates:
-        cat_score = score_category_alignment(store, brand)
-        price_score = score_price_alignment(store, brand)
-        eng_score = score_engagement(store)
-        wholesale_score = await score_wholesale_signals(store)
+        try:
+            cat_score = score_category_alignment(store, brand)
+            price_score = score_price_alignment(store, brand)
+            eng_score = score_engagement(store)
+            wholesale_score = await score_wholesale_signals(store)
 
-        text_score = _compute_text_score(cat_score, price_score, eng_score, wholesale_score)
+            text_score = _compute_text_score(cat_score, price_score, eng_score, wholesale_score)
 
-        partial = ScoredStore(
-            store=store,
-            visual_vibe_score=None,
-            category_score=cat_score,
-            price_score=price_score,
-            engagement_score=eng_score,
-            wholesale_score=wholesale_score,
-            text_score=text_score,
-            final_score=text_score,        # will be updated after vision
-            vision_was_run=False,
-            match_summary="",
-            why_matched="",
-            outreach_priority=compute_priority(text_score),
-        )
-        scores_in_progress.append(partial)
+            partial = ScoredStore(
+                store=store,
+                visual_vibe_score=None,
+                category_score=cat_score,
+                price_score=price_score,
+                engagement_score=eng_score,
+                wholesale_score=wholesale_score,
+                text_score=text_score,
+                final_score=text_score,        # will be updated after vision
+                vision_was_run=False,
+                match_summary="",
+                why_matched="",
+                outreach_priority=compute_priority(text_score),
+            )
+            scores_in_progress.append(partial)
+        except Exception as exc:
+            logger.warning("text_scoring_failed", store=store.name, error=str(exc))
+            errors.append(f"text_scoring:{store.name}: {exc}")
 
     logger.info("analyst_text_scoring_complete", count=len(scores_in_progress))
-    return {"scores_in_progress": scores_in_progress}
+    return {"scores_in_progress": scores_in_progress, "errors": errors}
 
 
 async def score_vision_node(state: AnalystState) -> dict:
@@ -137,7 +142,17 @@ async def score_vision_node(state: AnalystState) -> dict:
             updated.append(scored)
             continue
 
-        vibe = await score_visual_vibe(scored.store, brand)
+        if cost >= _VISION_BUDGET_USD:
+            logger.warning("vision_budget_exceeded", cost_usd=round(cost, 4))
+            updated.append(scored)
+            continue
+
+        try:
+            vibe = await score_visual_vibe(scored.store, brand)
+        except Exception as exc:
+            logger.warning("vision_score_failed", store=scored.store.name, error=str(exc))
+            updated.append(scored)
+            continue
         vision_calls += 1
 
         final_score = round(
@@ -218,10 +233,11 @@ async def compute_final_scores_node(state: AnalystState) -> dict:
                 temperature=0.4,
                 max_tokens=200,
             )
-            parsed = json.loads(response.choices[0].message.content)
+            parsed = json.loads(response.choices[0].message.content or "")
             match_summary = parsed.get("match_summary", "")
             why_matched = parsed.get("why_matched", "")
 
+            assert response.usage is not None
             token_usage["input"] = token_usage.get("input", 0) + response.usage.prompt_tokens
             token_usage["output"] = token_usage.get("output", 0) + response.usage.completion_tokens
             cost += (

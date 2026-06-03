@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.logging import logger
+from app.core.qdrant import ensure_brand_embeddings_collection
 
 
 @asynccontextmanager
@@ -19,6 +20,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.info("langsmith_tracing_enabled", project=settings.langsmith_project)
     else:
         logger.info("langsmith_tracing_disabled")
+
+    try:
+        await ensure_brand_embeddings_collection()
+    except Exception as exc:
+        logger.warning("qdrant_init_failed", error=str(exc))
+
     yield
 
 

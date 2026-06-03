@@ -24,11 +24,9 @@ Run:
 """
 from unittest.mock import MagicMock, patch
 
-import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.models.store_candidate import DimensionScore, ScoredStore, StoreCandidate
 
 # ---------------------------------------------------------------------------
 # Patch targets
@@ -71,7 +69,7 @@ def _make_task_mock(task_id: str = "fake-task-uuid-1234") -> MagicMock:
 def _fake_scored_store_dict() -> dict:
     """Minimal serialised ScoredStore dict (as Celery would store it)."""
     dim = {"score": 8.0, "reasoning": "good", "data_used": []}
-    store = {
+    store: dict = {
         "place_id": "ChIJ001", "name": "Botanica", "address": "1 Main St",
         "city": "Brooklyn", "state": "NY", "google_categories": [],
         "website_url": None, "instagram_handle": None, "instagram_followers": None,
