@@ -76,3 +76,4 @@ tmp/
 *.docx
 *.doc
 ~$*
+"frontend/node_modules/" 
