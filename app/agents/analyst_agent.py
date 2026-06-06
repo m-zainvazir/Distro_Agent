@@ -1,4 +1,5 @@
 import json
+from collections.abc import Callable
 from typing import Literal
 
 from groq import AsyncGroq
@@ -16,10 +17,15 @@ from app.models.store_candidate import (
     compute_priority,
 )
 from app.tools.category_scorer import score_category_alignment
+from app.tools.embedding_generator import embed_text
 from app.tools.engagement_scorer import score_engagement
 from app.tools.price_scorer import score_price_alignment
 from app.tools.vision_scorer import score_visual_vibe
 from app.tools.wholesale_scorer import score_wholesale_signals
+
+# Embedder used for semantic category scoring. Module-level so tests can patch it
+# to None (falling back to fast, deterministic keyword matching).
+_CATEGORY_EMBEDDER: Callable[[str], list[float]] | None = embed_text
 
 
 # ---------------------------------------------------------------------------
@@ -44,11 +50,12 @@ class AnalystState(TypedDict):
 # Text dimension weights (the 4 non-vision dimensions, normalised to 1.0)
 # ---------------------------------------------------------------------------
 
-_TEXT_WEIGHTS = {
-    "category": 0.25 / 0.65,   # 25% of total → re-normalised to text-only 65%
-    "price":    0.20 / 0.65,
-    "engagement": 0.10 / 0.65,
-    "wholesale":  0.10 / 0.65,
+# Base weights for the 4 text dimensions (25/20/10/10 of the overall 65% text share).
+_BASE_WEIGHTS = {
+    "category": 0.25,
+    "price": 0.20,
+    "engagement": 0.10,
+    "wholesale": 0.10,
 }
 
 # Groq llama-3.3-70b pricing: $0.59 / $0.79 per 1M tokens
@@ -62,14 +69,27 @@ def _compute_text_score(
     price: DimensionScore,
     eng: DimensionScore,
     wholesale: DimensionScore,
+    available: dict[str, bool],
 ) -> float:
-    score = (
-        cat.score * _TEXT_WEIGHTS["category"]
-        + price.score * _TEXT_WEIGHTS["price"]
-        + eng.score * _TEXT_WEIGHTS["engagement"]
-        + wholesale.score * _TEXT_WEIGHTS["wholesale"]
-    )
-    return round(score, 3)
+    """Weighted average over the dimensions we actually have data for.
+
+    Price, engagement, and wholesale signals are often unavailable for stores
+    discovered purely via Google Places (no price tier, Instagram, or reviews).
+    Scoring those as ~0 unfairly drags down a strong category match, so we
+    re-normalise the weights over only the dimensions with real input data.
+    When all four are present this is identical to the original fixed weighting.
+    """
+    scores = {
+        "category": cat.score,
+        "price": price.score,
+        "engagement": eng.score,
+        "wholesale": wholesale.score,
+    }
+    active = {k: w for k, w in _BASE_WEIGHTS.items() if available.get(k, True)}
+    total = sum(active.values())
+    if total == 0:
+        return round(cat.score, 3)
+    return round(sum(scores[k] * (active[k] / total) for k in active), 3)
 
 
 # ---------------------------------------------------------------------------
@@ -98,12 +118,23 @@ async def score_text_dimensions_node(state: AnalystState) -> dict:
 
     for store in candidates:
         try:
-            cat_score = score_category_alignment(store, brand)
+            cat_score = score_category_alignment(store, brand, embedder=_CATEGORY_EMBEDDER)
             price_score = score_price_alignment(store, brand)
             eng_score = score_engagement(store)
             wholesale_score = await score_wholesale_signals(store)
 
-            text_score = _compute_text_score(cat_score, price_score, eng_score, wholesale_score)
+            available = {
+                "category": bool(store.google_categories),
+                "price": store.price_tier is not None,
+                "engagement": (
+                    store.instagram_followers is not None
+                    or store.instagram_posts_last_30_days is not None
+                ),
+                "wholesale": bool(store.review_snippets),
+            }
+            text_score = _compute_text_score(
+                cat_score, price_score, eng_score, wholesale_score, available
+            )
 
             partial = ScoredStore(
                 store=store,

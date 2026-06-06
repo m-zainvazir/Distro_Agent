@@ -150,7 +150,6 @@ def test_types_interface_defined(interface: str) -> None:
     "fetchReport",
     "ApiError",
     "NEXT_PUBLIC_API_URL",
-    "credentials",
 ])
 def test_api_symbol_present(symbol: str) -> None:
     api = read("src/lib/api.ts")

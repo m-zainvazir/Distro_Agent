@@ -14,6 +14,14 @@ _VISION = "app.agents.analyst_agent.score_visual_vibe"
 _WHOLESALE = "app.agents.analyst_agent.score_wholesale_signals"
 _GROQ = "app.agents.analyst_agent.AsyncGroq"
 
+
+@pytest.fixture(autouse=True)
+def _keyword_category_scorer():
+    """Force the deterministic keyword category scorer in unit tests (the semantic
+    embedding path is exercised by the live integration run, not here)."""
+    with patch("app.agents.analyst_agent._CATEGORY_EMBEDDER", None):
+        yield
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

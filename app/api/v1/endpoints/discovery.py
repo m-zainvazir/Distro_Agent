@@ -36,6 +36,7 @@ class DiscoveryStatusResponse(BaseModel):
 class DiscoveryReportResponse(BaseModel):
     stores: list[ScoredStore]
     report_html: str
+    errors: list[str] = []
 
 
 # ---------------------------------------------------------------------------
@@ -114,4 +115,8 @@ async def get_discovery_report(task_id: str) -> DiscoveryReportResponse:
     stores = [ScoredStore(**s) for s in payload.get("scored_stores", [])]
     report_html = _build_report_html(payload.get("report_url", ""))
 
-    return DiscoveryReportResponse(stores=stores, report_html=report_html)
+    return DiscoveryReportResponse(
+        stores=stores,
+        report_html=report_html,
+        errors=payload.get("errors", []),
+    )

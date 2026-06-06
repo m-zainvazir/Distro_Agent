@@ -270,6 +270,11 @@ async def build_candidates_node(state: ScoutState) -> dict:
             "vibe_score": store.get("vibe_score", 0.0),
             "lead_score": 0.0,
             "status": "new",
+            # Carry the scoring signals the analyst needs (previously dropped here)
+            "google_categories": store.get("types", []),
+            "website_url": store.get("website", "") or None,
+            "price_tier": store.get("price_tier"),
+            "review_snippets": store.get("review_snippets", []),
         }
         discovered_stores.append(candidate)
 

@@ -54,9 +54,10 @@ class Phase1State(TypedDict):
 def _scout_dict_to_candidate(d: dict) -> StoreCandidate:
     """Convert a scout agent result dict to a StoreCandidate Pydantic model.
 
-    The scout returns minimal data (name, address, place_id, instagram_handle).
-    Missing analyst fields are defaulted to empty/None — the analyst handles
-    missing data gracefully via its engagement and wholesale scorers.
+    The scout enriches each store with Google categories, website, price tier,
+    and review snippets — carry those through so the analyst's category, price,
+    and wholesale scorers have real data to work with. Instagram metrics aren't
+    available from Google, so those remain None (engagement scorer handles it).
     """
     address = d.get("address", "")
     parts = [p.strip() for p in address.split(",")]
@@ -70,14 +71,14 @@ def _scout_dict_to_candidate(d: dict) -> StoreCandidate:
         address=address,
         city=city,
         state=state_str,
-        google_categories=[],
-        website_url=None,
-        instagram_handle=d.get("instagram_handle"),
+        google_categories=d.get("google_categories", []),
+        website_url=d.get("website_url") or None,
+        instagram_handle=d.get("instagram_handle") or None,
         instagram_followers=None,
         instagram_posts_last_30_days=None,
         storefront_image_urls=[],
-        price_tier=None,
-        review_snippets=[],
+        price_tier=d.get("price_tier"),
+        review_snippets=d.get("review_snippets", []),
         is_chain=False,
     )
 

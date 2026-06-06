@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+/* ─── Design-system tokens (Tailwind v4 @theme) ─────────────────────────── */
+@theme {
+  /* Colors */
+  --color-bg:           #FAFAF8;
+  --color-surface:      #FFFFFF;
+  --color-sage:         #7C9A82;
+  --color-sage-light:   #E8F0E9;
+  --color-sage-dark:    #4A6B50;
+  --color-blush:        #C4897A;
+  --color-blush-light:  #F5EAE7;
+  --color-border:       #E8E4DF;
+  --color-ink:          #1A1A1A;
+  --color-ink-muted:    #6B6B6B;
+
+  /* Fonts (CSS vars injected by next/font in layout.tsx) */
+  --font-display: var(--font-playfair), Georgia, serif;
+  --font-sans:    var(--font-inter), system-ui, sans-serif;
+
+  /* Max width */
+  --max-width-content: 720px;
+}
+
+/* ─── Keyframes ──────────────────────────────────────────────────────────── */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ─── Custom utilities ───────────────────────────────────────────────────── */
+@utility animate-fade-up {
+  animation: fade-up 400ms ease-out forwards;
+}
+
+@utility animate-spin-slow {
+  animation: spin-slow 2s linear infinite;
+}
+
+@utility animate-fade-in {
+  animation: fade-in 300ms ease-out forwards;
+}
+
+/* ─── Base ───────────────────────────────────────────────────────────────── */
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: #FAFAF8;
+  color: #1A1A1A;
+  -webkit-font-smoothing: antialiased;
+}
+
+*:focus-visible {
+  outline: 2px solid #7C9A82;
+  outline-offset: 2px;
+}

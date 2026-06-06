@@ -76,4 +76,12 @@ tmp/
 *.docx
 *.doc
 ~$*
-"frontend/node_modules/" 
+
+# Node / Next.js (frontend)
+node_modules/
+.next/
+next-env.d.ts
+*.tsbuildinfo
+
+# Generated reports
+/reports/

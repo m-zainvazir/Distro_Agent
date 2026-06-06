@@ -9,8 +9,17 @@ from app.core.logging import logger
 _TEXTSEARCH_URL = "https://places.googleapis.com/v1/places:searchText"
 _DETAILS_URL = "https://places.googleapis.com/v1/places/{place_id}"
 
-_SEARCH_FIELD_MASK = "places.id,places.displayName,places.formattedAddress,places.types,places.rating,places.userRatingCount"
-_DETAILS_FIELD_MASK = "id,websiteUri,internationalPhoneNumber,currentOpeningHours,businessStatus"
+_SEARCH_FIELD_MASK = "places.id,places.displayName,places.formattedAddress,places.types,places.rating,places.userRatingCount,places.priceLevel"
+_DETAILS_FIELD_MASK = "id,websiteUri,internationalPhoneNumber,currentOpeningHours,businessStatus,reviews"
+
+# Google Places (New) price-level enum -> the "$"-tier labels the price scorer expects
+_PRICE_LEVEL_MAP: dict[str, str] = {
+    "PRICE_LEVEL_FREE": "$",
+    "PRICE_LEVEL_INEXPENSIVE": "$",
+    "PRICE_LEVEL_MODERATE": "$$",
+    "PRICE_LEVEL_EXPENSIVE": "$$$",
+    "PRICE_LEVEL_VERY_EXPENSIVE": "$$$$",
+}
 
 
 async def search_places(query: str, location: str, api_key: str) -> list[dict]:
@@ -59,6 +68,7 @@ async def search_places(query: str, location: str, api_key: str) -> list[dict]:
                     "types": p.get("types", []),
                     "rating": p.get("rating"),
                     "user_ratings_total": p.get("userRatingCount"),
+                    "price_tier": _PRICE_LEVEL_MAP.get(p.get("priceLevel", "")),
                 }
                 for p in raw_places
             ]
@@ -108,12 +118,20 @@ async def get_place_details(place_id: str, api_key: str) -> dict:
 
             data = response.json()
 
+            # Pull plain-text snippets out of the review objects for the scorers
+            review_snippets: list[str] = [
+                r.get("text", {}).get("text", "")
+                for r in data.get("reviews", [])
+                if r.get("text", {}).get("text")
+            ]
+
             # Normalize new API field names to match what the rest of the codebase expects
             return {
                 "website": data.get("websiteUri", ""),
                 "formatted_phone_number": data.get("internationalPhoneNumber", ""),
                 "opening_hours": data.get("currentOpeningHours", {}),
                 "business_status": data.get("businessStatus", ""),
+                "review_snippets": review_snippets,
             }
 
     raise BrandExtractionError(

@@ -1,9 +1,12 @@
+import asyncio
 import json
 
 from groq import AsyncGroq
 
 from app.core.config import settings
 from app.core.logging import logger
+
+_MAX_ATTEMPTS = 3
 
 _SYSTEM_PROMPT = """\
 You are a brand intelligence analyst. Given product catalog data and brand text, return a JSON object with exactly these keys:
@@ -38,27 +41,44 @@ async def analyze_brand_aesthetics(
         f"Product catalog sample:\n{product_summary}"
     )
 
-    response = await client.chat.completions.create(
-        model=settings.groq_model,
-        messages=[
-            {"role": "system", "content": _SYSTEM_PROMPT},
-            {"role": "user", "content": user_content},
-        ],
-        response_format={"type": "json_object"},
-        max_tokens=1024,
-    )
+    # Retry transient Groq failures (network blips, rate limits, malformed JSON)
+    last_exc: Exception | None = None
+    for attempt in range(_MAX_ATTEMPTS):
+        try:
+            response = await client.chat.completions.create(
+                model=settings.groq_model,
+                messages=[
+                    {"role": "system", "content": _SYSTEM_PROMPT},
+                    {"role": "user", "content": user_content},
+                ],
+                response_format={"type": "json_object"},
+                max_tokens=1024,
+            )
 
-    assert response.usage is not None
-    token_usage = {
-        "input_tokens": response.usage.prompt_tokens,
-        "output_tokens": response.usage.completion_tokens,
-    }
-    logger.info(
-        "groq_token_usage",
-        model=settings.groq_model,
-        input_tokens=token_usage["input_tokens"],
-        output_tokens=token_usage["output_tokens"],
-    )
+            assert response.usage is not None
+            token_usage = {
+                "input_tokens": response.usage.prompt_tokens,
+                "output_tokens": response.usage.completion_tokens,
+            }
+            analysis: dict = json.loads(response.choices[0].message.content or "")
 
-    analysis: dict = json.loads(response.choices[0].message.content or "")
-    return analysis, token_usage
+            logger.info(
+                "groq_token_usage",
+                model=settings.groq_model,
+                input_tokens=token_usage["input_tokens"],
+                output_tokens=token_usage["output_tokens"],
+            )
+            return analysis, token_usage
+        except Exception as exc:
+            last_exc = exc
+            logger.warning(
+                "analyze_brand_aesthetics_retry",
+                attempt=attempt + 1,
+                max_attempts=_MAX_ATTEMPTS,
+                error=str(exc),
+            )
+            if attempt < _MAX_ATTEMPTS - 1:
+                await asyncio.sleep(1.5 * (attempt + 1))
+
+    assert last_exc is not None
+    raise last_exc
