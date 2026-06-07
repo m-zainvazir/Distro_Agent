@@ -60,6 +60,7 @@ def _build_report_html(report_url: str) -> str:
     return md.markdown(path.read_text(encoding="utf-8"), extensions=["tables", "fenced_code"])
 
 
+
 @router.post("/start", response_model=DiscoveryStartResponse, status_code=202)
 async def start_discovery(
     body: DiscoveryStartRequest,

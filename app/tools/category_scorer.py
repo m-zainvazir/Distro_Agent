@@ -92,6 +92,10 @@ def _curated_map_score(store: StoreCandidate, brand: BrandProfile) -> DimensionS
     return DimensionScore(score=score, reasoning=reasoning, data_used=list(matched)[:10])
 
 
+# ---------------------------------------------------------------------------
+# Primary: embedding-based cosine similarity
+# ---------------------------------------------------------------------------
+
 def score_category_alignment(
     store: StoreCandidate,
     brand: BrandProfile,
