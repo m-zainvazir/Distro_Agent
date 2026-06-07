@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     langsmith_project: str = "distroagent"
     google_maps_api_key: str = ""
     vision_score_threshold: float = 8.0
+    secret_key: str = "change-me-in-production"
 
 
 settings = Settings()  # type: ignore[call-arg]

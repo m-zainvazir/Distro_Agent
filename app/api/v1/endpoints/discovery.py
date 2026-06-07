@@ -1,11 +1,14 @@
 from pathlib import Path
+from typing import Annotated
 
 import markdown as md
 from celery.result import AsyncResult
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from app.celery_app import celery_app
+from app.core.dependencies import get_current_tenant
+from app.models.campaign import Tenant
 from app.models.store_candidate import ScoredStore
 from app.tasks.discovery import run_phase1_discovery
 
@@ -16,11 +19,11 @@ router = APIRouter(prefix="/discovery", tags=["discovery"])
 # Request / response models
 # ---------------------------------------------------------------------------
 
+
 class DiscoveryStartRequest(BaseModel):
     brand_url: str
     vertical_tag: str
     location: str
-    tenant_id: str = Field(default="default")
 
 
 class DiscoveryStartResponse(BaseModel):
@@ -29,8 +32,8 @@ class DiscoveryStartResponse(BaseModel):
 
 
 class DiscoveryStatusResponse(BaseModel):
-    status: str          # "processing" | "complete" | "error"
-    progress: int        # 0–100
+    status: str  # "processing" | "complete" | "error"
+    progress: int  # 0-100
 
 
 class DiscoveryReportResponse(BaseModel):
@@ -43,17 +46,18 @@ class DiscoveryReportResponse(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _celery_state_to_status(state: str) -> tuple[str, int]:
     """Map Celery task states to (status, progress) pairs."""
     mapping = {
-        "PENDING":  ("processing", 0),
+        "PENDING": ("processing", 0),
         "RECEIVED": ("processing", 5),
-        "STARTED":  ("processing", 10),
+        "STARTED": ("processing", 10),
         "PROGRESS": ("processing", 50),
-        "SUCCESS":  ("complete",  100),
-        "FAILURE":  ("error",       0),
-        "REVOKED":  ("error",       0),
-        "RETRY":    ("processing", 10),
+        "SUCCESS": ("complete", 100),
+        "FAILURE": ("error", 0),
+        "REVOKED": ("error", 0),
+        "RETRY": ("processing", 10),
     }
     return mapping.get(state, ("processing", 0))
 
@@ -69,28 +73,34 @@ def _build_report_html(report_url: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Endpoints
+# Endpoints — all require authentication
 # ---------------------------------------------------------------------------
 
+
 @router.post("/start", response_model=DiscoveryStartResponse, status_code=202)
-async def start_discovery(body: DiscoveryStartRequest) -> DiscoveryStartResponse:
+async def start_discovery(
+    body: DiscoveryStartRequest,
+    tenant: Annotated[Tenant, Depends(get_current_tenant)],
+) -> DiscoveryStartResponse:
     """Kick off the Phase 1 pipeline asynchronously. Poll /status for updates."""
     task = run_phase1_discovery.delay(
         brand_url=body.brand_url,
         vertical_tag=body.vertical_tag,
         location=body.location,
-        tenant_id=body.tenant_id,
+        tenant_id=str(tenant.id),
     )
     return DiscoveryStartResponse(task_id=task.id)
 
 
 @router.get("/{task_id}/status", response_model=DiscoveryStatusResponse)
-async def get_discovery_status(task_id: str) -> DiscoveryStatusResponse:
+async def get_discovery_status(
+    task_id: str,
+    tenant: Annotated[Tenant, Depends(get_current_tenant)],
+) -> DiscoveryStatusResponse:
     """Poll until status == 'complete' or 'error'."""
     result = AsyncResult(task_id, app=celery_app)
     status, progress = _celery_state_to_status(result.state)
 
-    # PROGRESS tasks carry a custom meta dict with finer-grained progress
     if result.state == "PROGRESS" and isinstance(result.info, dict):
         progress = result.info.get("progress", 50)
 
@@ -98,7 +108,10 @@ async def get_discovery_status(task_id: str) -> DiscoveryStatusResponse:
 
 
 @router.get("/{task_id}/report", response_model=DiscoveryReportResponse)
-async def get_discovery_report(task_id: str) -> DiscoveryReportResponse:
+async def get_discovery_report(
+    task_id: str,
+    tenant: Annotated[Tenant, Depends(get_current_tenant)],
+) -> DiscoveryReportResponse:
     """Retrieve final stores and HTML report. Call only after status == 'complete'."""
     result = AsyncResult(task_id, app=celery_app)
 
