@@ -19,6 +19,9 @@ redis
 celery[redis]
 markdown
 structlog
+python-jose[cryptography]
+bcrypt
+httpx
 pytest
 pytest-asyncio
 respx
