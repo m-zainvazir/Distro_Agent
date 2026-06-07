@@ -24,6 +24,7 @@ class BrandExtractorState(TypedDict):
     platform: str
     raw_catalog: list[dict]
     about_text: str
+    canonical_name: str   # authoritative store name from platform metadata
     image_urls: list[str]
     downloaded_images: list[str]
     primary_colors: list[str]
@@ -45,6 +46,14 @@ def _safe_float(value: object, default: float = 0.0) -> float:
         return float(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return default
+
+
+def _sample_products(products: list[dict], count: int = 8) -> list[dict]:
+    """Return up to count products sampled evenly across the full catalog."""
+    if len(products) <= count:
+        return products
+    step = max(1, len(products) // count)
+    return products[::step][:count]
 
 
 # ---------------------------------------------------------------------------
@@ -70,15 +79,16 @@ async def detect_platform_node(state: BrandExtractorState) -> dict:
 async def fetch_catalog_node(state: BrandExtractorState) -> dict:
     try:
         if state["platform"] == "shopify":
-            products, about_text = await fetch_shopify_catalog(state["brand_url"])
+            products, about_text, canonical_name = await fetch_shopify_catalog(state["brand_url"])
         elif state["platform"] == "etsy":
-            products, about_text = await fetch_etsy_catalog(state["brand_url"])
+            products, about_text, canonical_name = await fetch_etsy_catalog(state["brand_url"])
         else:
-            # "generic" — use Playwright for real-browser rendering
-            products, about_text = await scrape_with_playwright(state["brand_url"])
+            products, about_text, canonical_name = await scrape_with_playwright(state["brand_url"])
 
+        # Sample across the full catalog so a single sub-brand line doesn't dominate
+        sampled = _sample_products(products, count=8)
         image_urls: list[str] = []
-        for p in products[:20]:
+        for p in sampled:
             if "images" in p:
                 for img in p["images"]:
                     src = img.get("src", "")
@@ -90,6 +100,7 @@ async def fetch_catalog_node(state: BrandExtractorState) -> dict:
         return {
             "raw_catalog": products,
             "about_text": about_text,
+            "canonical_name": canonical_name,
             "image_urls": image_urls[:10],
             "error": None,
         }
@@ -97,6 +108,7 @@ async def fetch_catalog_node(state: BrandExtractorState) -> dict:
         return {
             "raw_catalog": [],
             "about_text": "",
+            "canonical_name": "",
             "image_urls": [],
             "error": str(exc),
         }
@@ -116,8 +128,9 @@ async def analyze_aesthetics_node(state: BrandExtractorState) -> dict:
     try:
         analysis, token_usage = await analyze_brand_aesthetics(
             about_text=state["about_text"],
-            products=state["raw_catalog"],
+            products=_sample_products(state["raw_catalog"], count=8),
             vertical_tag=state["vertical_tag"],
+            canonical_name=state.get("canonical_name", ""),
         )
         logger.info(
             "groq_token_usage",
@@ -152,8 +165,10 @@ async def build_profile_node(state: BrandExtractorState) -> dict:
     raw_images = state["image_urls"][:5]
 
     try:
+        # canonical_name from platform metadata overrides whatever the LLM inferred
+        brand_name = state.get("canonical_name") or analysis.get("brand_name", "")
         profile = BrandProfile(
-            brand_name=analysis.get("brand_name", ""),
+            brand_name=brand_name,
             tagline=analysis.get("tagline", ""),
             primary_colors=state.get("primary_colors", []),
             aesthetic_keywords=analysis.get("aesthetic_keywords", []),

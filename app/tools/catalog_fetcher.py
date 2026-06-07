@@ -1,3 +1,5 @@
+import re
+from collections import Counter
 from urllib.parse import urlparse
 
 import httpx
@@ -17,6 +19,35 @@ _HEADERS = {
 _ETSY_API_BASE = "https://openapi.etsy.com/v3/application"
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _most_common_vendor(products: list[dict]) -> str:
+    """Return the most frequent vendor value across products (Shopify shop name)."""
+    vendors = [p.get("vendor", "").strip() for p in products if p.get("vendor", "").strip()]
+    if not vendors:
+        return ""
+    return Counter(vendors).most_common(1)[0][0]
+
+
+def _shop_name_from_html(html: str, fallback_url: str) -> str:
+    """Extract shop name from og:site_name or <title> tag, falling back to domain."""
+    soup = BeautifulSoup(html, "html.parser")
+    og = soup.find("meta", property="og:site_name")
+    if og and og.get("content"):
+        return str(og["content"]).strip()
+    title_tag = soup.find("title")
+    if title_tag and title_tag.string:
+        # Strip common store suffixes: " | Official Store", " – Home", etc.
+        name = re.sub(r"\s*[|–—\-]\s*.+$", "", title_tag.string.strip())
+        if name:
+            return name
+    domain = urlparse(fallback_url).netloc.replace("www.", "")
+    return domain.split(".")[0].capitalize()
+
+
 def _extract_etsy_shop_name(url: str) -> str:
     """Extract shop name from an Etsy shop URL."""
     path = urlparse(url).path.rstrip("/")
@@ -30,7 +61,12 @@ def _extract_etsy_shop_name(url: str) -> str:
         ) from exc
 
 
-async def fetch_etsy_catalog(url: str) -> tuple[list[dict], str]:
+# ---------------------------------------------------------------------------
+# Catalog fetchers — all return (products, about_text, canonical_name)
+# ---------------------------------------------------------------------------
+
+
+async def fetch_etsy_catalog(url: str) -> tuple[list[dict], str, str]:
     """Fetch listings and shop info via the Etsy Open API v3."""
     if not settings.etsy_api_key:
         raise BrandExtractionError(
@@ -43,7 +79,6 @@ async def fetch_etsy_catalog(url: str) -> tuple[list[dict], str]:
 
     try:
         async with httpx.AsyncClient(timeout=20.0, headers=headers) as client:
-            # Fetch shop info for about text
             shop_resp = await client.get(f"{_ETSY_API_BASE}/shops/{shop_name}")
             shop_resp.raise_for_status()
             shop_data = shop_resp.json()
@@ -54,8 +89,9 @@ async def fetch_etsy_catalog(url: str) -> tuple[list[dict], str]:
                     shop_data.get("sale_message", ""),
                 ])
             )[:4000]
+            # Use the API's shop_name (URL-safe display name) as canonical
+            canonical_name: str = shop_data.get("shop_name", "") or shop_name
 
-            # Fetch active listings with images
             listings_resp = await client.get(
                 f"{_ETSY_API_BASE}/shops/{shop_name}/listings/active",
                 params={"limit": 100, "includes[]": "Images"},
@@ -104,10 +140,10 @@ async def fetch_etsy_catalog(url: str) -> tuple[list[dict], str]:
     ]
 
     logger.info("etsy_api_fetch_complete", shop=shop_name, listings=len(products))
-    return products, about_text
+    return products, about_text, canonical_name
 
 
-async def fetch_shopify_catalog(url: str) -> tuple[list[dict], str]:
+async def fetch_shopify_catalog(url: str) -> tuple[list[dict], str, str]:
     base = url.rstrip("/")
     try:
         async with httpx.AsyncClient(
@@ -137,14 +173,15 @@ async def fetch_shopify_catalog(url: str) -> tuple[list[dict], str]:
             retry_suggestion="Verify the store URL is correct and publicly accessible.",
         ) from exc
 
-    return products, about_text
+    # The Shopify `vendor` field is set by the merchant and reliably reflects
+    # the brand/shop name — far more accurate than inferring it from product titles.
+    canonical_name = _most_common_vendor(products)
+
+    return products, about_text, canonical_name
 
 
-async def scrape_with_playwright(url: str) -> tuple[list[dict], str]:
-    """Render a page with a real browser and extract products + about text.
-
-    Works on Etsy, generic brand sites, and any JS-rendered storefront.
-    """
+async def scrape_with_playwright(url: str) -> tuple[list[dict], str, str]:
+    """Render a page with a real browser and extract products + about text."""
     try:
         async with async_playwright() as p:
             browser = await p.chromium.launch(
@@ -161,7 +198,6 @@ async def scrape_with_playwright(url: str) -> tuple[list[dict], str]:
                 locale="en-US",
             )
             page = await context.new_page()
-            # Mask navigator.webdriver so bot-detection scripts don't flag us
             await page.add_init_script(
                 "Object.defineProperty(navigator,'webdriver',{get:()=>undefined})"
             )
@@ -172,7 +208,6 @@ async def scrape_with_playwright(url: str) -> tuple[list[dict], str]:
 
         soup = BeautifulSoup(html, "html.parser")
 
-        # Guard: if the page returned is a bot-challenge/blank page, raise early
         page_title = soup.title.string.strip() if soup.title and soup.title.string else ""
         domain = urlparse(url).netloc.replace("www.", "")
         if page_title.lower() in ("", domain.lower()):
@@ -181,10 +216,12 @@ async def scrape_with_playwright(url: str) -> tuple[list[dict], str]:
                 retry_suggestion="The site blocked the scraper. Try again later or provide a direct brand_url.",
             )
 
+        # Extract canonical shop name from page metadata
+        canonical_name = _shop_name_from_html(html, url)
+
         # --- Extract products ---
         products: list[dict] = []
 
-        # Etsy listing cards
         for card in soup.select("div[data-listing-id]")[:50]:
             title_el = card.select_one("h3,h2,[data-listing-title]")
             price_el = card.select_one(
@@ -199,9 +236,7 @@ async def scrape_with_playwright(url: str) -> tuple[list[dict], str]:
                 }
             )
 
-        # Generic product cards — headings near a price-like string
         if not products:
-            import re
             price_re = re.compile(r"\$[\d,]+(\.\d{2})?")
             for heading in soup.select("h2, h3")[:50]:
                 parent = heading.parent
@@ -220,12 +255,7 @@ async def scrape_with_playwright(url: str) -> tuple[list[dict], str]:
 
         # --- Extract about text ---
         about_text = ""
-        for selector in [
-            "#about-section",
-            "[data-about-section]",
-            "#about",
-            "[class*=about]",
-        ]:
+        for selector in ["#about-section", "[data-about-section]", "#about", "[class*=about]"]:
             el = soup.select_one(selector)
             if el:
                 about_text = el.get_text(separator=" ", strip=True)[:4000]
@@ -237,8 +267,10 @@ async def scrape_with_playwright(url: str) -> tuple[list[dict], str]:
                 about_text = str(meta.get("content") or "")[:4000]
 
         logger.info("playwright_scrape_complete", url=url, products_found=len(products))
-        return products, about_text
+        return products, about_text, canonical_name
 
+    except BrandExtractionError:
+        raise
     except Exception as exc:
         raise BrandExtractionError(
             message=f"Playwright scrape failed for {url}: {exc}",

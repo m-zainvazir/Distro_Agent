@@ -21,6 +21,7 @@ async def extract_brand(
         "platform": "",
         "raw_catalog": [],
         "about_text": "",
+        "canonical_name": "",
         "image_urls": [],
         "downloaded_images": [],
         "analysis": {},
