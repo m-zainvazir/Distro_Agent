@@ -15,6 +15,9 @@ class Tenant(Base, TimestampMixin):
     whatsapp_number = Column(String(20), nullable=True)
     plan = Column(String(50), nullable=False, default="free")
 
+    users = relationship(
+        "User", back_populates="tenant", cascade="all, delete-orphan"
+    )
     brand_profiles = relationship(
         "BrandProfileRecord", back_populates="tenant", cascade="all, delete-orphan"
     )

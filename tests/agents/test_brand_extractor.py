@@ -50,7 +50,7 @@ async def test_shopify_happy_path():
         patch(_DETECT, new=AsyncMock(return_value="shopify")),
         patch(
             _FETCH_SHOPIFY,
-            new=AsyncMock(return_value=(_FAKE_PRODUCTS_SHOPIFY, "Botanical beauty brand.")),
+            new=AsyncMock(return_value=(_FAKE_PRODUCTS_SHOPIFY, "Botanical beauty brand.", "Bloom & Co")),
         ),
         patch(_DOWNLOAD, new=AsyncMock(return_value=["base64imagedata=="])),
         patch(_COLORS, return_value=_FAKE_COLORS),
@@ -88,7 +88,7 @@ async def test_etsy_api_happy_path():
         patch(_DETECT, new=AsyncMock(return_value="etsy")),
         patch(
             _FETCH_ETSY,
-            new=AsyncMock(return_value=(etsy_products, "Handmade candles from beeswax.")),
+            new=AsyncMock(return_value=(etsy_products, "Handmade candles from beeswax.", "BloominCo")),
         ),
         patch(_DOWNLOAD, new=AsyncMock(return_value=["base64imagedata=="])),
         patch(_COLORS, return_value=_FAKE_COLORS),
@@ -106,7 +106,7 @@ async def test_etsy_api_happy_path():
         )
 
     assert isinstance(profile, BrandProfile)
-    assert profile.brand_name == "Bloom & Co"
+    assert profile.brand_name == "BloominCo"   # canonical_name from Etsy API wins
     assert len(profile.embedding_vector) == 384
 
 
@@ -138,7 +138,7 @@ async def test_generic_url_scrape():
         patch(_DETECT, new=AsyncMock(return_value="generic")),
         patch(
             _PLAYWRIGHT,
-            new=AsyncMock(return_value=(_FAKE_PRODUCTS_GENERIC, "A generic brand website.")),
+            new=AsyncMock(return_value=(_FAKE_PRODUCTS_GENERIC, "A generic brand website.", "Bloom & Co")),
         ),
         patch(_DOWNLOAD, new=AsyncMock(return_value=["base64imagedata=="])),
         patch(_COLORS, return_value=[]),
@@ -169,7 +169,7 @@ async def test_brand_name_discovery():
         patch(_DETECT, new=AsyncMock(return_value="shopify")),
         patch(
             _FETCH_SHOPIFY,
-            new=AsyncMock(return_value=(_FAKE_PRODUCTS_SHOPIFY, "Botanical beauty brand.")),
+            new=AsyncMock(return_value=(_FAKE_PRODUCTS_SHOPIFY, "Botanical beauty brand.", "Bloom & Co")),
         ),
         patch(_DOWNLOAD, new=AsyncMock(return_value=["base64imagedata=="])),
         patch(_COLORS, return_value=_FAKE_COLORS),
@@ -215,7 +215,7 @@ async def test_unknown_url_uses_generic_scraper():
     """Non-Shopify/Etsy URLs now route to Playwright generic scraper instead of raising."""
     with (
         patch(_DETECT, new=AsyncMock(return_value="generic")),
-        patch(_PLAYWRIGHT, new=AsyncMock(return_value=(_FAKE_PRODUCTS_GENERIC, "Generic site."))),
+        patch(_PLAYWRIGHT, new=AsyncMock(return_value=(_FAKE_PRODUCTS_GENERIC, "Generic site.", "SomeBrand"))),
         patch(_DOWNLOAD, new=AsyncMock(return_value=["base64imagedata=="])),
         patch(_COLORS, return_value=[]),
         patch(
@@ -230,7 +230,7 @@ async def test_unknown_url_uses_generic_scraper():
         )
 
     assert isinstance(profile, BrandProfile)
-    assert profile.brand_name == "Bloom & Co"
+    assert profile.brand_name == "SomeBrand"   # canonical_name from og:site_name wins
 
 
 @pytest.mark.asyncio
@@ -261,7 +261,7 @@ async def test_no_products_partial_profile():
         patch(_DETECT, new=AsyncMock(return_value="shopify")),
         patch(
             _FETCH_SHOPIFY,
-            new=AsyncMock(return_value=([], "Some about text.")),
+            new=AsyncMock(return_value=([], "Some about text.", "")),
         ),
     ):
         profile = await extract_brand(
@@ -279,7 +279,7 @@ async def test_image_failure_text_only():
         patch(_DETECT, new=AsyncMock(return_value="shopify")),
         patch(
             _FETCH_SHOPIFY,
-            new=AsyncMock(return_value=(_FAKE_PRODUCTS_SHOPIFY, "Botanical beauty brand.")),
+            new=AsyncMock(return_value=(_FAKE_PRODUCTS_SHOPIFY, "Botanical beauty brand.", "Bloom & Co")),
         ),
         patch(_DOWNLOAD, new=AsyncMock(return_value=[])),  # all downloads failed
         patch(_COLORS, return_value=[]),
@@ -314,7 +314,7 @@ async def test_token_usage_logged():
         patch(_DETECT, new=AsyncMock(return_value="shopify")),
         patch(
             _FETCH_SHOPIFY,
-            new=AsyncMock(return_value=(_FAKE_PRODUCTS_SHOPIFY, "Botanical beauty brand.")),
+            new=AsyncMock(return_value=(_FAKE_PRODUCTS_SHOPIFY, "Botanical beauty brand.", "Bloom & Co")),
         ),
         patch(_DOWNLOAD, new=AsyncMock(return_value=["base64imagedata=="])),
         patch(_COLORS, return_value=_FAKE_COLORS),
@@ -328,3 +328,40 @@ async def test_token_usage_logged():
 
     assert captured_usage.get("input_tokens", 0) > 0
     assert captured_usage.get("output_tokens", 0) > 0
+
+
+@pytest.mark.asyncio
+async def test_brand_name_pinned_to_store_name():
+    """Reproduce the Allbirds → 'Trino' bug: even when the LLM returns a wrong
+    sub-brand name, the canonical store name from platform metadata wins."""
+    _allbirds_products = [
+        {"title": "Trino Tee", "vendor": "Allbirds", "variants": [{"price": "45.00"}], "images": []},
+        {"title": "Tree Runner", "vendor": "Allbirds", "variants": [{"price": "98.00"}], "images": []},
+        {"title": "Wool Lounger", "vendor": "Allbirds", "variants": [{"price": "130.00"}], "images": []},
+    ]
+    # LLM incorrectly infers the brand name from the first product title
+    _llm_wrong_analysis = {**_FAKE_ANALYSIS, "brand_name": "Trino"}
+
+    with (
+        patch(_DETECT, new=AsyncMock(return_value="shopify")),
+        patch(
+            _FETCH_SHOPIFY,
+            new=AsyncMock(return_value=(_allbirds_products, "Sustainable footwear.", "Allbirds")),
+        ),
+        patch(_DOWNLOAD, new=AsyncMock(return_value=[])),
+        patch(_COLORS, return_value=[]),
+        patch(
+            _ANALYZE,
+            new=AsyncMock(return_value=(_llm_wrong_analysis, {"input_tokens": 300, "output_tokens": 100})),
+        ),
+        patch(_EMBED, new=AsyncMock(return_value=_FAKE_EMBEDDING)),
+    ):
+        profile = await extract_brand(
+            brand_url="https://allbirds.com",
+            vertical_tag="footwear",
+        )
+
+    assert profile.brand_name == "Allbirds", (
+        f"Expected 'Allbirds' but got '{profile.brand_name}' — "
+        "canonical_name from Shopify vendor field must override LLM output"
+    )
