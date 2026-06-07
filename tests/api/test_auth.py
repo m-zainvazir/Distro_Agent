@@ -19,7 +19,6 @@ from app.core.security import create_access_token, hash_password
 _test_app = FastAPI()
 _test_app.include_router(auth_router, prefix="/api/v1")
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -37,25 +36,11 @@ def _make_mock_db() -> AsyncMock:
     return db
 
 
-@pytest.fixture
-def client_with_db(mock_db: AsyncMock) -> AsyncClient:
-    async def _override() -> AsyncGenerator[AsyncMock, None]:
-        yield mock_db
-
-    _test_app.dependency_overrides[get_db] = _override
-    yield AsyncClient(transport=ASGITransport(app=_test_app), base_url="http://test")
-    _test_app.dependency_overrides.clear()
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 def _scalar_none(db: AsyncMock) -> None:
-    """Configure db.execute() to return no existing user (scalar_one_or_none → None)."""
-    execute_result = MagicMock()
-    execute_result.scalar_one_or_none.return_value = None
-    db.execute = AsyncMock(return_value=execute_result)
+    """Configure db.execute() to return no existing user."""
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = None
+    db.execute = AsyncMock(return_value=result)
 
 
 def _scalar_user(db: AsyncMock, hashed: str) -> None:
@@ -68,9 +53,9 @@ def _scalar_user(db: AsyncMock, hashed: str) -> None:
         hashed_password=hashed,
         tenant_id=_TENANT_ID,
     )
-    execute_result = MagicMock()
-    execute_result.scalar_one_or_none.return_value = user
-    db.execute = AsyncMock(return_value=execute_result)
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = user
+    db.execute = AsyncMock(return_value=result)
 
 
 # ---------------------------------------------------------------------------
@@ -205,11 +190,14 @@ async def test_login_unknown_email_returns_401() -> None:
 @pytest.mark.asyncio
 async def test_get_current_tenant_valid_token() -> None:
     from app.core.dependencies import get_current_tenant
-    from app.core.database import get_db
     from app.models.campaign import Tenant
-    from fastapi import FastAPI
 
     dep_app = FastAPI()
+    tenant_obj = Tenant(id=_TENANT_ID, name="Acme")
+    db = _make_mock_db()
+    result_mock = MagicMock()
+    result_mock.scalar_one_or_none.return_value = tenant_obj
+    db.execute = AsyncMock(return_value=result_mock)
 
     @dep_app.get("/protected")
     async def _protected(
@@ -217,17 +205,10 @@ async def test_get_current_tenant_valid_token() -> None:
     ) -> dict:
         return {"tenant_id": str(tenant.id)}
 
-    tenant_obj = Tenant(id=_TENANT_ID, name="Acme")
-    db = _make_mock_db()
-    result_mock = MagicMock()
-    result_mock.scalar_one_or_none.return_value = tenant_obj
-    db.execute = AsyncMock(return_value=result_mock)
-
     async def _override_db() -> AsyncGenerator[AsyncMock, None]:
         yield db
 
     dep_app.dependency_overrides[get_db] = _override_db
-    dep_app.include_router(auth_router, prefix="/api/v1")
 
     token = create_access_token(tenant_id=_TENANT_ID, user_id=_USER_ID)
     async with AsyncClient(
@@ -260,7 +241,7 @@ async def test_get_current_tenant_missing_token_returns_401() -> None:
     ) as client:
         resp = await client.get("/protected")
 
-    assert resp.status_code in (401, 403)  # HTTPBearer raises 401/403 on missing header
+    assert resp.status_code in (401, 403)
 
 
 @pytest.mark.asyncio
@@ -300,13 +281,7 @@ async def test_get_current_tenant_invalid_token_returns_401() -> None:
 
 @pytest.mark.asyncio
 async def test_tenant_isolation_token_resolves_to_own_tenant_only() -> None:
-    """A token minted for tenant A must never resolve to tenant B's data.
-
-    Each call to get_current_tenant fetches the row whose PK matches the
-    tenant_id claim inside the JWT.  Two tokens with different tenant_id
-    claims must therefore return two *different* Tenant objects — proving
-    the dependency cannot cross tenant boundaries.
-    """
+    """A token minted for tenant A must never resolve to tenant B's data."""
     from app.core.dependencies import get_current_tenant
     from app.models.campaign import Tenant
 
@@ -337,10 +312,8 @@ async def test_tenant_isolation_token_resolves_to_own_tenant_only() -> None:
         return {"tenant_id": str(tenant.id), "name": tenant.name}
 
     # Token A resolves to tenant A
-    db_a = _make_db_for(tenant_a)
-
     async def _override_a() -> AsyncGenerator[AsyncMock, None]:
-        yield db_a
+        yield _make_db_for(tenant_a)
 
     dep_app.dependency_overrides[get_db] = _override_a
     async with AsyncClient(
@@ -352,10 +325,8 @@ async def test_tenant_isolation_token_resolves_to_own_tenant_only() -> None:
     assert resp_a.json()["name"] == "Brand A"
 
     # Token B resolves to tenant B, not A
-    db_b = _make_db_for(tenant_b)
-
     async def _override_b() -> AsyncGenerator[AsyncMock, None]:
-        yield db_b
+        yield _make_db_for(tenant_b)
 
     dep_app.dependency_overrides[get_db] = _override_b
     async with AsyncClient(
