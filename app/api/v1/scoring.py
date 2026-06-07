@@ -1,7 +1,11 @@
-from fastapi import APIRouter, HTTPException
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.core.dependencies import get_current_tenant
 from app.models.brand_profile import BrandProfile
+from app.models.campaign import Tenant
 from app.models.store_candidate import ScoredStore, StoreCandidate
 from app.services.analyst_service import score_stores
 
@@ -23,7 +27,10 @@ class ScoreBatchResponse(BaseModel):
 
 
 @router.post("/score-batch", response_model=ScoreBatchResponse)
-async def score_batch(request: ScoreBatchRequest) -> ScoreBatchResponse:
+async def score_batch(
+    request: ScoreBatchRequest,
+    tenant: Annotated[Tenant, Depends(get_current_tenant)],
+) -> ScoreBatchResponse:
     try:
         scored = await score_stores(
             brand_profile=request.brand_profile,
@@ -34,7 +41,7 @@ async def score_batch(request: ScoreBatchRequest) -> ScoreBatchResponse:
         raise HTTPException(status_code=400, detail=str(exc))
 
     vision_ran_on = sum(1 for s in scored if s.vision_was_run)
-    total_cost = sum(0.0 for _ in scored)   # cost tracked in service logs
+    total_cost = sum(0.0 for _ in scored)
 
     return ScoreBatchResponse(
         scored_stores=scored,

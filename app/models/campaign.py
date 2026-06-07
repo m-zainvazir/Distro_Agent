@@ -15,6 +15,9 @@ class Tenant(Base, TimestampMixin):
     whatsapp_number = Column(String(20), nullable=True)
     plan = Column(String(50), nullable=False, default="free")
 
+    users = relationship(
+        "User", back_populates="tenant", cascade="all, delete-orphan"
+    )
     brand_profiles = relationship(
         "BrandProfileRecord", back_populates="tenant", cascade="all, delete-orphan"
     )
@@ -120,6 +123,7 @@ class OutreachEmail(Base, TimestampMixin):
         nullable=False,
         index=True,
     )
+    thread_id = Column(String(255), nullable=True, index=True)  # LangGraph checkpoint thread
     subject = Column(String(500), nullable=False)
     body = Column(Text, nullable=False)
     sent_at = Column(DateTime, nullable=True)

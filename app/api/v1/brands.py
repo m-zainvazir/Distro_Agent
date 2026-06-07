@@ -1,12 +1,15 @@
 import uuid
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.dependencies import get_current_tenant
 from app.core.errors import BrandExtractionError, UnsupportedPlatformError
 from app.models.brand_profile import BrandProfile
+from app.models.campaign import Tenant
 from app.services.brand_service import (
     extract_brand,
     save_brand_profile_record,
@@ -20,7 +23,6 @@ class ExtractRequest(BaseModel):
     brand_url: str = ""
     brand_name: str = ""
     vertical_tag: str
-    tenant_id: uuid.UUID
 
     @model_validator(mode="after")
     def require_url_or_name(self) -> "ExtractRequest":
@@ -38,7 +40,8 @@ class ExtractResponse(BaseModel):
 @router.post("/extract", response_model=ExtractResponse)
 async def extract_brand_endpoint(
     body: ExtractRequest,
-    db: AsyncSession = Depends(get_db),
+    tenant: Annotated[Tenant, Depends(get_current_tenant)],
+    db: Annotated[AsyncSession, Depends(get_db)],
 ) -> ExtractResponse:
     try:
         profile = await extract_brand(
@@ -61,8 +64,9 @@ async def extract_brand_endpoint(
             },
         ) from exc
 
-    record = await save_brand_profile_record(db, body.tenant_id, body.brand_url, profile)
-    await upsert_brand_embedding(record.id, body.tenant_id, profile)  # type: ignore[arg-type]
+    tenant_id = cast(uuid.UUID, tenant.id)
+    record = await save_brand_profile_record(db, tenant_id, body.brand_url, profile)
+    await upsert_brand_embedding(cast(uuid.UUID, record.id), tenant_id, profile)
 
     return ExtractResponse(
         status="ok",

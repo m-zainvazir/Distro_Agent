@@ -3,32 +3,12 @@ from collections.abc import Callable
 
 from app.models.brand_profile import BrandProfile
 from app.models.store_candidate import DimensionScore, StoreCandidate
+from app.tools.category_map import GOOGLE_TYPE_TO_CONSUMER_TERMS
 
-# Generic Google place types that carry no aesthetic signal — dropped before matching.
-_GENERIC_GOOGLE_TYPES: set[str] = {
+_NOISE: set[str] = {
     "point", "interest", "establishment", "store", "premise", "food",
     "general", "contractor", "point_of_interest",
 }
-
-# Calibration for bge-small cosine similarity → 0–10 score. Related retail text
-# typically lands ~0.55–0.80; unrelated ~0.30–0.45.
-_SIM_FLOOR = 0.30
-_SIM_CEIL = 0.78
-
-
-def _clean_store_text(store: StoreCandidate) -> str:
-    """Build a readable category string from Google's compound types + reviews.
-
-    e.g. ["cosmetics_store", "point_of_interest"] -> "cosmetics" (noise dropped),
-    so a "cosmetics_store" can match a brand whose products are makeup/lip care.
-    """
-    terms: list[str] = []
-    for cat in store.google_categories:
-        for tok in cat.replace("_", " ").split():
-            if tok.lower() not in _GENERIC_GOOGLE_TYPES:
-                terms.append(tok)
-    parts = [store.name, *terms, *store.review_snippets[:3]]
-    return " ".join(p for p in parts if p)
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
@@ -40,19 +20,58 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return dot / (na * nb) if na and nb else 0.0
 
 
-def _keyword_score(store: StoreCandidate, brand: BrandProfile) -> DimensionScore:
-    """Original exact-token overlap scorer — used as a fallback when no embedder
-    is supplied (keeps unit tests fast and deterministic)."""
-    brand_keywords: set[str] = {
-        kw.lower() for kw in brand.product_categories + brand.aesthetic_keywords
-    }
+def _sim_to_score(sim: float) -> float:
+    """Map cosine similarity to 0-10 using spec threshold buckets."""
+    if sim > 0.55:
+        return round(min(9.0 + (sim - 0.55) / 0.25, 10.0), 2)
+    if sim >= 0.45:
+        return round(7.0 + (sim - 0.45) / 0.10 * 1.9, 2)
+    if sim >= 0.35:
+        return round(5.0 + (sim - 0.35) / 0.10 * 1.9, 2)
+    if sim >= 0.25:
+        return round(3.0 + (sim - 0.25) / 0.10 * 1.9, 2)
+    return round(max(1.0, 1.0 + sim / 0.25 * 1.9), 2)
 
-    store_text = (
-        " ".join(store.google_categories) + " " + " ".join(store.review_snippets)
-    ).lower()
-    store_keywords: set[str] = {word for word in store_text.split() if len(word) > 3}
 
-    matched = brand_keywords & store_keywords
+def _expand_categories(categories: list[str]) -> list[str]:
+    """Expand Google place types via curated map; unmapped types fall back to tokenisation."""
+    terms: list[str] = []
+    for cat in categories:
+        mapped = GOOGLE_TYPE_TO_CONSUMER_TERMS.get(cat)
+        if mapped:
+            terms.extend(mapped)
+        else:
+            for tok in cat.replace("_", " ").split():
+                if tok.lower() not in _NOISE:
+                    terms.append(tok)
+    return terms
+
+
+def _clean_store_text(store: StoreCandidate) -> str:
+    """Build embedding-ready text from store metadata using map-expanded categories."""
+    parts = [store.name, *_expand_categories(store.google_categories), *store.review_snippets[:3]]
+    return " ".join(p for p in parts if p)
+
+
+def _curated_map_score(store: StoreCandidate, brand: BrandProfile) -> DimensionScore:
+    """Keyword overlap after curated map expansion — fallback when no embedder."""
+    brand_terms: set[str] = set()
+    for kw in brand.product_categories + brand.aesthetic_keywords:
+        for word in kw.lower().split():
+            if len(word) > 3:
+                brand_terms.add(word)
+
+    store_terms: set[str] = set()
+    for term in _expand_categories(store.google_categories):
+        for word in term.lower().split():
+            if len(word) > 3:
+                store_terms.add(word)
+    for snippet in store.review_snippets[:3]:
+        for word in snippet.lower().split():
+            if len(word) > 3:
+                store_terms.add(word)
+
+    matched = brand_terms & store_terms
     overlap = len(matched)
 
     if overlap >= 5:
@@ -65,12 +84,11 @@ def _keyword_score(store: StoreCandidate, brand: BrandProfile) -> DimensionScore
         score = 1.5
 
     score = round(min(score, 10.0), 2)
-
-    if matched:
-        reasoning = f"Matched {overlap} keyword(s): {', '.join(sorted(matched)[:5])}."
-    else:
-        reasoning = "No keyword overlap between brand categories and store profile."
-
+    reasoning = (
+        f"Matched {overlap} term(s) via curated map: {', '.join(sorted(matched)[:5])}."
+        if matched
+        else "No term overlap between brand categories and store profile."
+    )
     return DimensionScore(score=score, reasoning=reasoning, data_used=list(matched)[:10])
 
 
@@ -79,35 +97,28 @@ def score_category_alignment(
     brand: BrandProfile,
     embedder: Callable[[str], list[float]] | None = None,
 ) -> DimensionScore:
-    """Score how well a store's categories fit the brand.
+    """Score category alignment.
 
-    When an ``embedder`` is provided, uses semantic cosine similarity between the
-    brand's category/aesthetic profile and the store's (cleaned) categories — this
-    bridges vocabulary gaps like Google's "cosmetics_store" vs a brand's "makeup".
-    Falls back to exact-keyword overlap when no embedder is given or embedding fails.
+    Primary (embedder provided): uses brand.embedding_vector directly, embeds store
+    text, maps cosine similarity through spec threshold buckets.
+    Fallback (no embedder or exception): curated-map keyword overlap.
     """
     if embedder is None:
-        return _keyword_score(store, brand)
+        return _curated_map_score(store, brand)
 
     try:
-        brand_text = (
+        brand_vec = brand.embedding_vector if brand.embedding_vector else embedder(
             f"{brand.brand_name}. "
             f"{', '.join(brand.product_categories)}. "
             f"{', '.join(brand.aesthetic_keywords)}"
         )
         store_text = _clean_store_text(store)
-        sim = _cosine(embedder(brand_text), embedder(store_text))
-        scaled = (sim - _SIM_FLOOR) / (_SIM_CEIL - _SIM_FLOOR) * 10.0
-        score = round(max(0.0, min(scaled, 10.0)), 2)
+        store_vec = embedder(store_text)
+        sim = _cosine(brand_vec, store_vec)
         return DimensionScore(
-            score=score,
-            reasoning=(
-                f"Semantic similarity {sim:.2f} between brand categories "
-                f"({', '.join(brand.product_categories[:3])}) and store profile "
-                f"({store_text[:60]})."
-            ),
+            score=_sim_to_score(sim),
+            reasoning=f"Semantic similarity {sim:.2f} (brand vs store: {store_text[:60]}).",
             data_used=store.google_categories[:10],
         )
     except Exception:
-        # Any embedding failure → degrade gracefully to keyword matching.
-        return _keyword_score(store, brand)
+        return _curated_map_score(store, brand)

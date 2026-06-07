@@ -16,29 +16,22 @@ from app.tools.vision_analyzer import analyze_brand_aesthetics
 
 
 class BrandExtractorState(TypedDict):
-    # Inputs — one of brand_url or brand_name must be provided
     brand_url: str
     brand_name: str
     vertical_tag: str
-    # Derived
     platform: str
     raw_catalog: list[dict]
     about_text: str
+    canonical_name: str   # authoritative store name from platform metadata
     image_urls: list[str]
     downloaded_images: list[str]
     primary_colors: list[str]
-    # Intermediate (populated by nodes, consumed by build_profile)
     analysis: dict
     embedding: list[float]
-    # Outputs
     brand_profile: BrandProfile | None
     token_usage: dict[str, int]
     error: str | None
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def _safe_float(value: object, default: float = 0.0) -> float:
     try:
@@ -47,9 +40,13 @@ def _safe_float(value: object, default: float = 0.0) -> float:
         return default
 
 
-# ---------------------------------------------------------------------------
-# Nodes
-# ---------------------------------------------------------------------------
+def _sample_products(products: list[dict], count: int = 8) -> list[dict]:
+    """Return up to count products sampled evenly across the full catalog."""
+    if len(products) <= count:
+        return products
+    step = max(1, len(products) // count)
+    return products[::step][:count]
+
 
 async def discover_url_node(state: BrandExtractorState) -> dict:
     try:
@@ -70,15 +67,15 @@ async def detect_platform_node(state: BrandExtractorState) -> dict:
 async def fetch_catalog_node(state: BrandExtractorState) -> dict:
     try:
         if state["platform"] == "shopify":
-            products, about_text = await fetch_shopify_catalog(state["brand_url"])
+            products, about_text, canonical_name = await fetch_shopify_catalog(state["brand_url"])
         elif state["platform"] == "etsy":
-            products, about_text = await fetch_etsy_catalog(state["brand_url"])
+            products, about_text, canonical_name = await fetch_etsy_catalog(state["brand_url"])
         else:
-            # "generic" — use Playwright for real-browser rendering
-            products, about_text = await scrape_with_playwright(state["brand_url"])
+            products, about_text, canonical_name = await scrape_with_playwright(state["brand_url"])
 
+        sampled = _sample_products(products, count=8)
         image_urls: list[str] = []
-        for p in products[:20]:
+        for p in sampled:
             if "images" in p:
                 for img in p["images"]:
                     src = img.get("src", "")
@@ -90,6 +87,7 @@ async def fetch_catalog_node(state: BrandExtractorState) -> dict:
         return {
             "raw_catalog": products,
             "about_text": about_text,
+            "canonical_name": canonical_name,
             "image_urls": image_urls[:10],
             "error": None,
         }
@@ -97,6 +95,7 @@ async def fetch_catalog_node(state: BrandExtractorState) -> dict:
         return {
             "raw_catalog": [],
             "about_text": "",
+            "canonical_name": "",
             "image_urls": [],
             "error": str(exc),
         }
@@ -116,8 +115,9 @@ async def analyze_aesthetics_node(state: BrandExtractorState) -> dict:
     try:
         analysis, token_usage = await analyze_brand_aesthetics(
             about_text=state["about_text"],
-            products=state["raw_catalog"],
+            products=_sample_products(state["raw_catalog"], count=8),
             vertical_tag=state["vertical_tag"],
+            canonical_name=state.get("canonical_name", ""),
         )
         logger.info(
             "groq_token_usage",
@@ -152,8 +152,10 @@ async def build_profile_node(state: BrandExtractorState) -> dict:
     raw_images = state["image_urls"][:5]
 
     try:
+        # canonical_name from platform metadata overrides whatever the LLM inferred
+        brand_name = state.get("canonical_name") or analysis.get("brand_name", "")
         profile = BrandProfile(
-            brand_name=analysis.get("brand_name", ""),
+            brand_name=brand_name,
             tagline=analysis.get("tagline", ""),
             primary_colors=state.get("primary_colors", []),
             aesthetic_keywords=analysis.get("aesthetic_keywords", []),
@@ -195,21 +197,13 @@ async def error_node(state: BrandExtractorState) -> dict:
     return {"brand_profile": None}
 
 
-# ---------------------------------------------------------------------------
-# Routing
-# ---------------------------------------------------------------------------
-
-def route_entry(
-    state: BrandExtractorState,
-) -> Literal["discover_url", "detect_platform"]:
+def route_entry(state: BrandExtractorState) -> Literal["discover_url", "detect_platform"]:
     if state.get("brand_url"):
         return "detect_platform"
     return "discover_url"
 
 
-def route_after_discover(
-    state: BrandExtractorState,
-) -> Literal["detect_platform", "error"]:
+def route_after_discover(state: BrandExtractorState) -> Literal["detect_platform", "error"]:
     if state.get("error"):
         return "error"
     return "detect_platform"
@@ -233,10 +227,6 @@ def route_after_aesthetics(
     return "generate_embedding"
 
 
-# ---------------------------------------------------------------------------
-# Graph
-# ---------------------------------------------------------------------------
-
 def _build_graph() -> StateGraph:
     graph = StateGraph(BrandExtractorState)
 
@@ -251,7 +241,6 @@ def _build_graph() -> StateGraph:
     graph.add_node("error", error_node)
 
     graph.set_conditional_entry_point(route_entry)
-
     graph.add_conditional_edges("discover_url", route_after_discover)
     graph.add_edge("detect_platform", "fetch_catalog")
     graph.add_conditional_edges("fetch_catalog", route_after_catalog)
