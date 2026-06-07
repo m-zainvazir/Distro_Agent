@@ -21,6 +21,7 @@ markdown
 structlog
 python-jose[cryptography]
 bcrypt
+langgraph-checkpoint-postgres
 pytest
 pytest-asyncio
 respx

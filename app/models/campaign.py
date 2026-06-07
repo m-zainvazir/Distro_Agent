@@ -123,6 +123,7 @@ class OutreachEmail(Base, TimestampMixin):
         nullable=False,
         index=True,
     )
+    thread_id = Column(String(255), nullable=True, index=True)  # LangGraph checkpoint thread
     subject = Column(String(500), nullable=False)
     body = Column(Text, nullable=False)
     sent_at = Column(DateTime, nullable=True)

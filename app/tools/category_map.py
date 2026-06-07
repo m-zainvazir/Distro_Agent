@@ -1,8 +1,7 @@
 """Curated map from Google Places types to consumer-facing search terms.
 
-Used as the fallback scorer when embeddings are unavailable, and as an
-expansion layer that bridges Google's technical taxonomy ("cosmetics_store")
-to the vocabulary brands actually use ("makeup", "skincare").
+Used as the fallback scorer when embeddings are unavailable, bridging
+Google's technical taxonomy ("cosmetics_store") to brand vocabulary ("makeup").
 """
 
 GOOGLE_TYPE_TO_CONSUMER_TERMS: dict[str, list[str]] = {

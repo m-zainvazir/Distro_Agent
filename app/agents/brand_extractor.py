@@ -16,11 +16,9 @@ from app.tools.vision_analyzer import analyze_brand_aesthetics
 
 
 class BrandExtractorState(TypedDict):
-    # Inputs — one of brand_url or brand_name must be provided
     brand_url: str
     brand_name: str
     vertical_tag: str
-    # Derived
     platform: str
     raw_catalog: list[dict]
     about_text: str
@@ -28,18 +26,12 @@ class BrandExtractorState(TypedDict):
     image_urls: list[str]
     downloaded_images: list[str]
     primary_colors: list[str]
-    # Intermediate (populated by nodes, consumed by build_profile)
     analysis: dict
     embedding: list[float]
-    # Outputs
     brand_profile: BrandProfile | None
     token_usage: dict[str, int]
     error: str | None
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def _safe_float(value: object, default: float = 0.0) -> float:
     try:
@@ -55,10 +47,6 @@ def _sample_products(products: list[dict], count: int = 8) -> list[dict]:
     step = max(1, len(products) // count)
     return products[::step][:count]
 
-
-# ---------------------------------------------------------------------------
-# Nodes
-# ---------------------------------------------------------------------------
 
 async def discover_url_node(state: BrandExtractorState) -> dict:
     try:
@@ -85,7 +73,6 @@ async def fetch_catalog_node(state: BrandExtractorState) -> dict:
         else:
             products, about_text, canonical_name = await scrape_with_playwright(state["brand_url"])
 
-        # Sample across the full catalog so a single sub-brand line doesn't dominate
         sampled = _sample_products(products, count=8)
         image_urls: list[str] = []
         for p in sampled:
@@ -210,21 +197,13 @@ async def error_node(state: BrandExtractorState) -> dict:
     return {"brand_profile": None}
 
 
-# ---------------------------------------------------------------------------
-# Routing
-# ---------------------------------------------------------------------------
-
-def route_entry(
-    state: BrandExtractorState,
-) -> Literal["discover_url", "detect_platform"]:
+def route_entry(state: BrandExtractorState) -> Literal["discover_url", "detect_platform"]:
     if state.get("brand_url"):
         return "detect_platform"
     return "discover_url"
 
 
-def route_after_discover(
-    state: BrandExtractorState,
-) -> Literal["detect_platform", "error"]:
+def route_after_discover(state: BrandExtractorState) -> Literal["detect_platform", "error"]:
     if state.get("error"):
         return "error"
     return "detect_platform"
@@ -248,10 +227,6 @@ def route_after_aesthetics(
     return "generate_embedding"
 
 
-# ---------------------------------------------------------------------------
-# Graph
-# ---------------------------------------------------------------------------
-
 def _build_graph() -> StateGraph:
     graph = StateGraph(BrandExtractorState)
 
@@ -266,7 +241,6 @@ def _build_graph() -> StateGraph:
     graph.add_node("error", error_node)
 
     graph.set_conditional_entry_point(route_entry)
-
     graph.add_conditional_edges("discover_url", route_after_discover)
     graph.add_edge("detect_platform", "fetch_catalog")
     graph.add_conditional_edges("fetch_catalog", route_after_catalog)

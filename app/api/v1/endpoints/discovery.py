@@ -15,11 +15,6 @@ from app.tasks.discovery import run_phase1_discovery
 router = APIRouter(prefix="/discovery", tags=["discovery"])
 
 
-# ---------------------------------------------------------------------------
-# Request / response models
-# ---------------------------------------------------------------------------
-
-
 class DiscoveryStartRequest(BaseModel):
     brand_url: str
     vertical_tag: str
@@ -32,8 +27,8 @@ class DiscoveryStartResponse(BaseModel):
 
 
 class DiscoveryStatusResponse(BaseModel):
-    status: str  # "processing" | "complete" | "error"
-    progress: int  # 0-100
+    status: str
+    progress: int
 
 
 class DiscoveryReportResponse(BaseModel):
@@ -42,13 +37,7 @@ class DiscoveryReportResponse(BaseModel):
     errors: list[str] = []
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
 def _celery_state_to_status(state: str) -> tuple[str, int]:
-    """Map Celery task states to (status, progress) pairs."""
     mapping = {
         "PENDING": ("processing", 0),
         "RECEIVED": ("processing", 5),
@@ -68,13 +57,8 @@ def _build_report_html(report_url: str) -> str:
     path = Path(report_url)
     if not path.exists():
         return "<p>Report not available.</p>"
-    markdown_text = path.read_text(encoding="utf-8")
-    return md.markdown(markdown_text, extensions=["tables", "fenced_code"])
+    return md.markdown(path.read_text(encoding="utf-8"), extensions=["tables", "fenced_code"])
 
-
-# ---------------------------------------------------------------------------
-# Endpoints — all require authentication
-# ---------------------------------------------------------------------------
 
 
 @router.post("/start", response_model=DiscoveryStartResponse, status_code=202)
@@ -82,7 +66,6 @@ async def start_discovery(
     body: DiscoveryStartRequest,
     tenant: Annotated[Tenant, Depends(get_current_tenant)],
 ) -> DiscoveryStartResponse:
-    """Kick off the Phase 1 pipeline asynchronously. Poll /status for updates."""
     task = run_phase1_discovery.delay(
         brand_url=body.brand_url,
         vertical_tag=body.vertical_tag,
@@ -97,13 +80,10 @@ async def get_discovery_status(
     task_id: str,
     tenant: Annotated[Tenant, Depends(get_current_tenant)],
 ) -> DiscoveryStatusResponse:
-    """Poll until status == 'complete' or 'error'."""
     result = AsyncResult(task_id, app=celery_app)
     status, progress = _celery_state_to_status(result.state)
-
     if result.state == "PROGRESS" and isinstance(result.info, dict):
         progress = result.info.get("progress", 50)
-
     return DiscoveryStatusResponse(status=status, progress=progress)
 
 
@@ -112,24 +92,18 @@ async def get_discovery_report(
     task_id: str,
     tenant: Annotated[Tenant, Depends(get_current_tenant)],
 ) -> DiscoveryReportResponse:
-    """Retrieve final stores and HTML report. Call only after status == 'complete'."""
     result = AsyncResult(task_id, app=celery_app)
-
     if result.state == "FAILURE":
         raise HTTPException(status_code=500, detail="Discovery task failed.")
-
     if result.state != "SUCCESS":
         raise HTTPException(
             status_code=409,
             detail=f"Task not complete yet (state={result.state}). Poll /status first.",
         )
-
     payload: dict = result.result
     stores = [ScoredStore(**s) for s in payload.get("scored_stores", [])]
-    report_html = _build_report_html(payload.get("report_url", ""))
-
     return DiscoveryReportResponse(
         stores=stores,
-        report_html=report_html,
+        report_html=_build_report_html(payload.get("report_url", "")),
         errors=payload.get("errors", []),
     )

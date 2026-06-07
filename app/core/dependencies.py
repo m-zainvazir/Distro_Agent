@@ -36,9 +36,7 @@ async def get_current_tenant(
         logger.warning("jwt_decode_failed")
         raise _401
 
-    result = await db.execute(
-        select(Tenant).where(Tenant.id == uuid.UUID(tenant_id))
-    )
+    result = await db.execute(select(Tenant).where(Tenant.id == uuid.UUID(tenant_id)))
     tenant = result.scalar_one_or_none()
     if tenant is None:
         raise _401
@@ -59,9 +57,7 @@ async def get_current_user(
         logger.warning("jwt_decode_failed")
         raise _401
 
-    result = await db.execute(
-        select(User).where(User.id == uuid.UUID(user_id))
-    )
+    result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
     user = result.scalar_one_or_none()
     if user is None:
         raise _401
