@@ -94,9 +94,12 @@ async def upsert_brand_embedding(
                 id=str(record_id),
                 vector=profile.embedding_vector,
                 payload={
+                    "brand_id": str(record_id),
                     "tenant_id": str(tenant_id),
-                    "brand_name": profile.brand_name,
                     "aesthetic_keywords": profile.aesthetic_keywords,
+                    "price_range_min": profile.price_range[0],
+                    "price_range_max": profile.price_range[1],
+                    "product_categories": profile.product_categories,
                 },
             )
         ],

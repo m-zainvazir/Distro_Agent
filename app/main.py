@@ -35,9 +35,11 @@ app = FastAPI(title="DistroAgent", version="0.1.0", lifespan=lifespan)
 # CORS — allow all origins in dev; tighten in production via env var
 # ---------------------------------------------------------------------------
 
+_origins = [o.strip() for o in settings.cors_origins.split(",")]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_origins,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )

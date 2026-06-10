@@ -18,7 +18,9 @@ if config.config_file_name is not None:
 
 # Import Base and all models so Alembic discovers every table
 from app.models.base import Base
-import app.models.campaign  # noqa: F401
+import app.models.campaign       # noqa: F401
+import app.models.user           # noqa: F401
+import app.models.sending_domain # noqa: F401
 
 target_metadata = Base.metadata
 

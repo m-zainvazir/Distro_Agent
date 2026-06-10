@@ -10,11 +10,25 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://localhost/distroagent"
     redis_url: str = "redis://localhost:6379"
     qdrant_url: str = "http://localhost:6333"
+    qdrant_api_key: str = ""
     langsmith_api_key: str = ""
     langsmith_project: str = "distroagent"
     google_maps_api_key: str = ""
     vision_score_threshold: float = 8.0
     secret_key: str = "change-me-in-production"
+    whatsapp_phone_number_id: str = ""
+    whatsapp_access_token: str = ""
+    whatsapp_app_secret: str = ""
+    whatsapp_verify_token: str = ""
+    whatsapp_founder_phone: str = ""
+    sendgrid_api_key: str = ""
+    gmail_oauth_client_id: str = ""
+    gmail_oauth_client_secret: str = ""
+    gmail_oauth_refresh_token: str = ""
+    google_calendar_oauth_client_id: str = ""
+    google_calendar_oauth_client_secret: str = ""
+    google_calendar_oauth_refresh_token: str = ""
+    cors_origins: str = "*"  # production: "https://yourdomain.vercel.app"
 
 
 settings = Settings()  # type: ignore[call-arg]

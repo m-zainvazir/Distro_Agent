@@ -2,7 +2,12 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "http://your-railway-url.railway.app/api/:path*"
+      "destination": "https://distroagent.fly.dev/api/:path*"
     }
-  ]
+  ],
+  "env": {
+    "NEXT_PUBLIC_CALENDLY_URL": "https://calendly.com/zain-botsify/wholesale-intro"
+  },
+  "buildCommand": "npm run build",
+  "framework": "nextjs"
 }

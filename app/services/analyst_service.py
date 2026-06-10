@@ -1,3 +1,9 @@
+from __future__ import annotations
+
+import uuid
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.agents.analyst_agent import AnalystState, analyst_graph
 from app.core.logging import logger
 from app.models.brand_profile import BrandProfile
@@ -8,7 +14,15 @@ async def score_stores(
     brand_profile: BrandProfile,
     store_candidates: list[StoreCandidate],
     max_stores: int = 50,
+    tenant_id: uuid.UUID | None = None,
+    db: AsyncSession | None = None,
 ) -> list[ScoredStore]:
+    # Dedup against already-processed stores for this tenant before scoring
+    if tenant_id is not None and db is not None:
+        from app.services.similarity_service import dedup_stores
+
+        store_candidates = await dedup_stores(tenant_id, store_candidates, db)
+
     capped = store_candidates[:max_stores]
 
     initial_state: AnalystState = {

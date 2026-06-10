@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Boolean, Column, Float, ForeignKey, String, Text, DateTime
+from sqlalchemy import Boolean, Column, Float, ForeignKey, Integer, String, Text, DateTime
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 
@@ -117,6 +117,12 @@ class OutreachEmail(Base, TimestampMixin):
         nullable=False,
         index=True,
     )
+    tenant_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
     store_id = Column(
         UUID(as_uuid=True),
         ForeignKey("store_candidates.id", ondelete="CASCADE"),
@@ -125,10 +131,15 @@ class OutreachEmail(Base, TimestampMixin):
     )
     subject = Column(String(500), nullable=False)
     body = Column(Text, nullable=False)
+    to_email = Column(String(255), nullable=True)
     sent_at = Column(DateTime, nullable=True)
+    message_id = Column(String(255), nullable=True)
     reply_received = Column(Boolean, nullable=False, default=False)
     reply_content = Column(Text, nullable=True)
-    # Values: "pending" | "sent" | "bounced" | "replied" | "converted" | "ignored"
+    reply_intent = Column(String(50), nullable=True)
+    gmail_thread_id = Column(String(255), nullable=True)
+    follow_up_count = Column(Integer, nullable=False, default=0)
+    # Values: "pending" | "pending_approval" | "approved" | "sent" | "bounced" | "replied" | "converted" | "ignored"
     outcome = Column(String(50), nullable=False, default="pending")
 
     campaign = relationship("OutreachCampaign", back_populates="outreach_emails")
