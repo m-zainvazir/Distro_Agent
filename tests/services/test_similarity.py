@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -245,7 +244,6 @@ async def test_score_stores_calls_dedup_when_tenant_provided() -> None:
         embedding_vector=[0.1] * 10,
     )
     candidates = [_make_store("place_x"), _make_store("place_y")]
-    scored_result: list[Any] = []
 
     mock_db = AsyncMock()
     mock_dedup = AsyncMock(return_value=candidates)  # pass-through
