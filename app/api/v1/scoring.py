@@ -41,7 +41,7 @@ async def score_batch(
         raise HTTPException(status_code=400, detail=str(exc))
 
     vision_ran_on = sum(1 for s in scored if s.vision_was_run)
-    total_cost = sum(0.0 for _ in scored)  # cost tracked in service logs
+    total_cost = sum(0.0 for _ in scored)
 
     return ScoreBatchResponse(
         scored_stores=scored,

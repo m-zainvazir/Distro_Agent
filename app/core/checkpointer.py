@@ -1,4 +1,12 @@
-"""Checkpointer factory — tries AsyncPostgresSaver, falls back to MemorySaver."""
+"""Checkpointer factory for LangGraph HITL graphs.
+
+Production: AsyncPostgresSaver — state survives process restarts and supports
+            horizontal scaling.
+Dev/test:   MemorySaver — in-process only, no external dependency required.
+
+Callers should use ``get_checkpointer()`` rather than importing either class
+directly, so the fallback is transparent.
+"""
 from __future__ import annotations
 
 from typing import Any
@@ -16,10 +24,20 @@ async def get_checkpointer() -> Any:
     try:
         from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver  # type: ignore[import]
 
-        dsn = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
-        return AsyncPostgresSaver.from_conn_string(dsn)
+        dsn = (
+            settings.database_url
+            .replace("postgresql+asyncpg://", "postgresql://")
+            .replace("postgres+asyncpg://", "postgresql://")
+        )
+        checkpointer = AsyncPostgresSaver.from_conn_string(dsn)
+        logger.info("checkpointer_postgres_selected")
+        return checkpointer
     except Exception as exc:
-        logger.warning("checkpointer_fallback_to_memory", error=str(exc))
+        logger.warning(
+            "checkpointer_fallback_to_memory",
+            reason=str(exc)[:120],
+            fallback="MemorySaver",
+        )
         from langgraph.checkpoint.memory import MemorySaver
 
         if _memory_saver is None:

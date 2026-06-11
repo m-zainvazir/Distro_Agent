@@ -23,7 +23,7 @@ Respond with ONLY valid JSON. No markdown fences, no explanation.
 """
 
 _NAME_CONSTRAINT = (
-    "IMPORTANT: The brand name is EXACTLY \"{name}\". "
+    'IMPORTANT: The brand name is EXACTLY "{name}". '
     "Use this name verbatim for brand_name. Do NOT use a product name, sub-brand, or line name."
 )
 
@@ -41,7 +41,6 @@ async def analyze_brand_aesthetics(
         f"- {p.get('title', '')} | price: {p.get('price', p.get('variants', [{}])[0].get('price', 'N/A') if p.get('variants') else 'N/A')}"
         for p in products
     )
-
     name_instruction = (
         f"\n\n{_NAME_CONSTRAINT.format(name=canonical_name)}" if canonical_name else ""
     )
@@ -52,7 +51,6 @@ async def analyze_brand_aesthetics(
         f"{name_instruction}"
     )
 
-    # Retry transient Groq failures (network blips, rate limits, malformed JSON)
     last_exc: Exception | None = None
     for attempt in range(_MAX_ATTEMPTS):
         try:
@@ -65,14 +63,12 @@ async def analyze_brand_aesthetics(
                 response_format={"type": "json_object"},
                 max_tokens=1024,
             )
-
             assert response.usage is not None
             token_usage = {
                 "input_tokens": response.usage.prompt_tokens,
                 "output_tokens": response.usage.completion_tokens,
             }
             analysis: dict = json.loads(response.choices[0].message.content or "")
-
             logger.info(
                 "groq_token_usage",
                 model=settings.groq_model,
