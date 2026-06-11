@@ -29,6 +29,10 @@ env/
 .env.*
 !.env.example
 
+# OAuth credential files — store secrets in .env only
+gmail_oauth/client_secret.json
+gmail_oauth/token.json
+
 # Testing
 .pytest_cache/
 .coverage
