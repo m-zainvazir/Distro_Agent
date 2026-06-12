@@ -89,3 +89,6 @@ next-env.d.ts
 
 # Generated reports
 /reports/
+
+# Saved credentials / deployment notes — never commit
+/important/
