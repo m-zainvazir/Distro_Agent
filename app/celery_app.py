@@ -16,7 +16,13 @@ celery_app = Celery(
     "distroagent",
     broker=settings.redis_url,
     backend=settings.redis_url,
-    include=["app.tasks.discovery", "app.tasks.email_tasks", "app.tasks.reply_tasks"],
+    include=[
+        "app.tasks.discovery",
+        "app.tasks.email_tasks",
+        "app.tasks.reply_tasks",
+        "app.tasks.calibration_task",
+        "app.tasks.invoice_task",
+    ],
 )
 
 celery_app.conf.update(
@@ -36,6 +42,10 @@ celery_app.conf.update(
         "check-replies": {
             "task": "replies.check_replies",
             "schedule": 3600.0,  # every hour
+        },
+        "calibrate-scoring-weights": {
+            "task": "calibration.run_daily",
+            "schedule": 86400.0,  # every 24 hours
         },
     },
 )

@@ -2,10 +2,11 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://distroagent.fly.dev/api/:path*"
+      "destination": "https://api.distroagent.ai/api/:path*"
     }
   ],
   "env": {
+    "NEXT_PUBLIC_API_URL": "https://api.distroagent.ai",
     "NEXT_PUBLIC_CALENDLY_URL": "https://calendly.com/zain-botsify/wholesale-intro"
   },
   "buildCommand": "npm run build",

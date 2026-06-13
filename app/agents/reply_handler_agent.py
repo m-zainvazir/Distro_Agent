@@ -176,6 +176,20 @@ async def classify_node(state: ReplyHandlerState) -> dict:
 
 async def handle_interested_node(state: ReplyHandlerState) -> dict:
     logger.info("reply_interested", email_id=state.get("email_id", ""))
+    try:
+        from app.services.crm_sync import CrmEventType, push_event
+
+        await push_event(
+            tenant_id=state.get("tenant_id", ""),
+            event_type=CrmEventType.POSITIVE_REPLY,
+            event_data={
+                "email_id": state.get("email_id", ""),
+                "store_email": state.get("sender_email", ""),
+                "reply_intent": INTERESTED,
+            },
+        )
+    except Exception as exc:
+        logger.warning("crm_sync_interested_failed", error=str(exc))
     return {
         "routing_action": "send_catalog",
         "notes": "Buyer expressed interest — send catalog and schedule follow-up.",
@@ -197,6 +211,7 @@ async def handle_objection_node(state: ReplyHandlerState) -> dict:
     initial: NegotiatorState = {
         "objection_text": state["reply_text"],
         "buyer_email": state["sender_email"],
+        "buyer_name": state["sender_email"],
         "original_email_id": state.get("email_id", ""),
         "tenant_id": state["tenant_id"],
         "rulebook": WholesaleRulebook(),
@@ -209,7 +224,11 @@ async def handle_objection_node(state: ReplyHandlerState) -> dict:
         "approved": None,
         "final_counter": None,
         "routing_action": "",
+        "token_usage": {"input": 0, "output": 0},
+        "cost_usd": 0.0,
         "graph_thread_id": thread_id,
+        "invoice_line_items": [],
+        "invoice_due_days": 30,
     }
 
     try:
@@ -277,6 +296,21 @@ async def handle_meeting_request_node(state: ReplyHandlerState) -> dict:
     except Exception as exc:
         logger.error("scheduling_invocation_failed", error=str(exc))
         notes = f"Scheduling agent failed to start: {exc}"
+
+    try:
+        from app.services.crm_sync import CrmEventType, push_event
+
+        await push_event(
+            tenant_id=state.get("tenant_id", ""),
+            event_type=CrmEventType.POSITIVE_REPLY,
+            event_data={
+                "email_id": state.get("email_id", ""),
+                "store_email": state.get("sender_email", ""),
+                "reply_intent": MEETING_REQUEST,
+            },
+        )
+    except Exception as exc:
+        logger.warning("crm_sync_meeting_request_failed", error=str(exc))
 
     return {"routing_action": "route_to_scheduling", "notes": notes}
 

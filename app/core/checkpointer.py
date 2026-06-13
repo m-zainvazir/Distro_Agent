@@ -30,6 +30,9 @@ async def get_checkpointer() -> Any:
             .replace("postgres+asyncpg://", "postgresql://")
         )
         checkpointer = AsyncPostgresSaver.from_conn_string(dsn)
+        # Newer langgraph versions return a context manager — unusable as a direct saver
+        if hasattr(checkpointer, "__aenter__"):
+            raise RuntimeError("AsyncPostgresSaver.from_conn_string returned a context manager")
         logger.info("checkpointer_postgres_selected")
         return checkpointer
     except Exception as exc:

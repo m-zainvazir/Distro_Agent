@@ -303,6 +303,7 @@ async def invoke_negotiator_node(state: Phase2State) -> dict:
     initial: NegotiatorState = {
         "objection_text": state["reply_text"],
         "buyer_email": state.get("sender_email") or state["buyer_email"],
+        "buyer_name": state.get("sender_email") or state["buyer_email"],
         "original_email_id": state.get("outreach_email_id", ""),
         "tenant_id": state["tenant_id"],
         "rulebook": WholesaleRulebook(),
@@ -318,6 +319,8 @@ async def invoke_negotiator_node(state: Phase2State) -> dict:
         "token_usage": {"input": 0, "output": 0},
         "cost_usd": 0.0,
         "graph_thread_id": thread_id,
+        "invoice_line_items": [],
+        "invoice_due_days": 30,
     }
 
     result = await graph.ainvoke(initial, config=config)

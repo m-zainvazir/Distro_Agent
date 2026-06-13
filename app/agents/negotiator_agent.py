@@ -54,6 +54,7 @@ ObjectionType = Literal["PRICE", "MOQ", "SHIPPING", "NET_TERMS", "OTHER"]
 class NegotiatorState(TypedDict):
     objection_text: str
     buyer_email: str
+    buyer_name: str               # display name for Stripe customer (defaults to email)
     original_email_id: str
     tenant_id: str
     rulebook: WholesaleRulebook
@@ -69,6 +70,9 @@ class NegotiatorState(TypedDict):
     token_usage: dict[str, int]   # accumulated {"input": n, "output": n}
     cost_usd: float               # accumulated Groq spend for this run
     graph_thread_id: str          # LangGraph thread_id for HITL resume routing
+    # Invoice fields — populated by caller; reviewed by admin before sending
+    invoice_line_items: list[dict]  # [{description, amount_cents}]
+    invoice_due_days: int           # days until invoice due (default 30)
 
 
 # ---------------------------------------------------------------------------
@@ -393,11 +397,35 @@ async def hitl_approval_node(state: NegotiatorState) -> dict:
     return {"approved": approved, "counter_id": counter_id}
 
 
+def _dispatch_invoice_task(state: NegotiatorState) -> None:
+    """Fire-and-forget: dispatch Celery invoice task after agreement is reached."""
+    try:
+        from app.tasks.invoice_task import generate_and_send_invoice_task
+
+        generate_and_send_invoice_task.delay(
+            email_id=state.get("original_email_id", ""),
+            tenant_id=state.get("tenant_id", ""),
+            buyer_email=state.get("buyer_email", ""),
+            buyer_name=state.get("buyer_name", ""),
+            line_items=state.get("invoice_line_items", []),
+            due_days=state.get("invoice_due_days", 30),
+            agreed_terms=state.get("counter_offer_body", ""),
+        )
+        logger.info(
+            "invoice_task_dispatched",
+            email_id=state.get("original_email_id"),
+            buyer_email=state.get("buyer_email"),
+        )
+    except Exception as exc:
+        logger.warning("invoice_task_dispatch_failed", error=str(exc))
+
+
 async def finalize_node(state: NegotiatorState) -> dict:
     approved = state.get("approved")
 
     if approved:
         logger.info("counter_approved", objection_type=state["objection_type"])
+        _dispatch_invoice_task(state)
         return {
             "final_counter": state["counter_offer_body"],
             "routing_action": "counter_approved",

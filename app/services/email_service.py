@@ -132,3 +132,19 @@ async def send_outreach_email(
         domain=domain.domain,
         message_id=message_id,
     )
+
+    try:
+        from app.services.crm_sync import CrmEventType, push_event
+
+        await push_event(
+            tenant_id=str(tenant_id),
+            event_type=CrmEventType.EMAIL_SENT,
+            event_data={
+                "email_id": str(email.id),
+                "email_subject": email.subject,
+                "store_email": to_email,
+            },
+            db=db,
+        )
+    except Exception as exc:
+        logger.warning("crm_sync_email_sent_failed", error=str(exc))

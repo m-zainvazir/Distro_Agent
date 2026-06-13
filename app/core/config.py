@@ -28,7 +28,14 @@ class Settings(BaseSettings):
     google_calendar_oauth_client_id: str = ""
     google_calendar_oauth_client_secret: str = ""
     google_calendar_oauth_refresh_token: str = ""
-    cors_origins: str = "*"  # production: "https://yourdomain.vercel.app"
+    cors_origins: str = "*"  # production: "https://beauty.distroagent.ai"
+    # Used to construct approve/reject links sent to admin
+    base_url: str = "http://localhost:8000"
+    # Admin phone for governance approvals (defaults to founder phone if unset)
+    admin_phone: str = ""
+    # Stripe
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
 
 
 settings = Settings()  # type: ignore[call-arg]

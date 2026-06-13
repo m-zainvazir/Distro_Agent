@@ -99,6 +99,8 @@ class OutreachCampaign(Base, TenantMixin, TimestampMixin):
     )
     # Values: "draft" | "active" | "paused" | "completed"
     status = Column(String(50), nullable=False, default="draft")
+    # e.g. "footwear", "skincare" — used for per-vertical calibration
+    vertical_tag = Column(String(100), nullable=True, index=True)
 
     tenant = relationship("Tenant", back_populates="outreach_campaigns")
     brand_profile = relationship("BrandProfileRecord", back_populates="outreach_campaigns")
@@ -140,8 +142,12 @@ class OutreachEmail(Base, TimestampMixin):
     reply_intent = Column(String(50), nullable=True)
     gmail_thread_id = Column(String(255), nullable=True)
     follow_up_count = Column(Integer, nullable=False, default=0)
-    # Values: "pending" | "pending_approval" | "approved" | "sent" | "bounced" | "replied" | "converted" | "ignored"
+    # Values: "pending" | "pending_approval" | "approved" | "sent" | "bounced" | "replied" | "converted" | "ignored" | "invoice_sent" | "deal_closed"
     outcome = Column(String(50), nullable=False, default="pending")
+    # Stripe invoice tracking — populated by invoice_task
+    stripe_invoice_id = Column(String(255), nullable=True)
+    # Values: invoice_pending | invoice_sent | invoice_rejected | send_failed | payment_failed | overdue | deal_closed
+    deal_status = Column(String(50), nullable=True)
 
     campaign = relationship("OutreachCampaign", back_populates="outreach_emails")
     store = relationship("StoreCandidate", back_populates="outreach_emails")

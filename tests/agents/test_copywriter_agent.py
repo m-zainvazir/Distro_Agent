@@ -353,7 +353,7 @@ async def test_full_graph_reject_loops_to_draft() -> None:
 async def test_get_checkpointer_tries_postgres_first() -> None:
     from app.core.checkpointer import get_checkpointer
 
-    mock_saver = MagicMock()
+    mock_saver = MagicMock(spec=object)  # spec=object means no __aenter__, so not treated as a CM
     mock_saver_cls = MagicMock()
     mock_saver_cls.from_conn_string.return_value = mock_saver
 
