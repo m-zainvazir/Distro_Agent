@@ -5,8 +5,8 @@ import {
   fetchReport,
   pollStatus,
   startDiscovery as apiStart,
-} from '@/lib/api'
-import type { DiscoveryStatus, ReportResponse } from '@/lib/types'
+} from '../lib/api'
+import type { DiscoveryStatus, ReportResponse } from '../lib/types'
 
 const PROGRESS_MESSAGES: Record<number, string> = {
   0:  'Reading your brand story...',

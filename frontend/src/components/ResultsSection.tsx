@@ -1,4 +1,4 @@
-import type { ReportResponse } from '@/lib/types'
+import type { ReportResponse } from '../lib/types'
 import CTABanner from './CTABanner'
 import StoreCard from './StoreCard'
 import TeaserBlur from './TeaserBlur'

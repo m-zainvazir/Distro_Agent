@@ -1,10 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import HeroSection from '@/components/HeroSection'
-import LoadingState from '@/components/LoadingState'
-import ResultsSection from '@/components/ResultsSection'
-import { useDiscovery } from '@/hooks/useDiscovery'
+import HeroSection from '../components/HeroSection'
+import LoadingState from '../components/LoadingState'
+import ResultsSection from '../components/ResultsSection'
+import { useDiscovery } from '../hooks/useDiscovery'
 
 export default function Home() {
   const { status, progress, currentStep, report, error, startDiscovery, reset } =

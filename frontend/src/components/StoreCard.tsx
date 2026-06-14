@@ -1,4 +1,4 @@
-import type { ScoredStore } from '@/lib/types'
+import type { ScoredStore } from '../lib/types'
 
 interface StoreCardProps {
   store: ScoredStore
