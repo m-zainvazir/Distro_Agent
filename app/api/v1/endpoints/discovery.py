@@ -1,17 +1,21 @@
 from pathlib import Path
+from typing import Any
+import uuid
 
 import markdown as md
-from celery.result import AsyncResult
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 
-from app.celery_app import celery_app
+from app.core.logging import logger
 from app.models.store_candidate import ScoredStore
-from app.tasks.discovery import run_phase1_discovery
+from app.workflows.phase1_workflow import phase1_graph
 
 router = APIRouter(prefix="/discovery", tags=["discovery"])
 
 _PUBLIC_TENANT_ID = "00000000-0000-0000-0000-000000000000"
+
+# In-memory task store — sufficient for demo; lost on pod restart
+_tasks: dict[str, dict[str, Any]] = {}
 
 
 class DiscoveryStartRequest(BaseModel):
@@ -36,20 +40,6 @@ class DiscoveryReportResponse(BaseModel):
     errors: list[str] = []
 
 
-def _celery_state_to_status(state: str) -> tuple[str, int]:
-    mapping = {
-        "PENDING": ("processing", 0),
-        "RECEIVED": ("processing", 5),
-        "STARTED": ("processing", 10),
-        "PROGRESS": ("processing", 50),
-        "SUCCESS": ("complete", 100),
-        "FAILURE": ("error", 0),
-        "REVOKED": ("error", 0),
-        "RETRY": ("processing", 10),
-    }
-    return mapping.get(state, ("processing", 0))
-
-
 def _build_report_html(report_url: str) -> str:
     if not report_url:
         return "<p>Report not available.</p>"
@@ -59,37 +49,81 @@ def _build_report_html(report_url: str) -> str:
     return md.markdown(path.read_text(encoding="utf-8"), extensions=["tables", "fenced_code"])
 
 
+async def _run_discovery(
+    task_id: str,
+    brand_url: str,
+    vertical_tag: str,
+    location: str,
+) -> None:
+    try:
+        _tasks[task_id] = {"status": "processing", "progress": 30}
+        result = await phase1_graph.ainvoke(
+            {
+                "brand_url": brand_url,
+                "vertical_tag": vertical_tag,
+                "target_location": location,
+                "tenant_id": _PUBLIC_TENANT_ID,
+                "brand_profile": None,
+                "store_candidates": [],
+                "scored_stores": [],
+                "report_url": "",
+                "errors": [],
+            }
+        )
+        scored = result.get("scored_stores", [])
+        _tasks[task_id] = {
+            "status": "complete",
+            "progress": 100,
+            "result": {
+                "scored_stores": [s.model_dump() for s in scored],
+                "report_url": result.get("report_url", ""),
+                "errors": result.get("errors", []),
+            },
+        }
+        logger.info("discovery_complete", task_id=task_id, scored=len(scored))
+    except Exception as exc:
+        logger.exception("discovery_failed", task_id=task_id, error=str(exc))
+        _tasks[task_id] = {"status": "error", "progress": 0}
+
+
 @router.post("/start", response_model=DiscoveryStartResponse, status_code=202)
-async def start_discovery(body: DiscoveryStartRequest) -> DiscoveryStartResponse:
-    task = run_phase1_discovery.delay(
-        brand_url=body.brand_url,
-        vertical_tag=body.vertical_tag,
-        location=body.location,
-        tenant_id=_PUBLIC_TENANT_ID,
+async def start_discovery(
+    body: DiscoveryStartRequest,
+    background_tasks: BackgroundTasks,
+) -> DiscoveryStartResponse:
+    task_id = str(uuid.uuid4())
+    _tasks[task_id] = {"status": "processing", "progress": 0}
+    background_tasks.add_task(
+        _run_discovery,
+        task_id,
+        body.brand_url,
+        body.vertical_tag,
+        body.location,
     )
-    return DiscoveryStartResponse(task_id=task.id)
+    return DiscoveryStartResponse(task_id=task_id)
 
 
 @router.get("/{task_id}/status", response_model=DiscoveryStatusResponse)
 async def get_discovery_status(task_id: str) -> DiscoveryStatusResponse:
-    result = AsyncResult(task_id, app=celery_app)
-    status, progress = _celery_state_to_status(result.state)
-    if result.state == "PROGRESS" and isinstance(result.info, dict):
-        progress = result.info.get("progress", 50)
-    return DiscoveryStatusResponse(status=status, progress=progress)
+    task = _tasks.get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found.")
+    return DiscoveryStatusResponse(status=task["status"], progress=task["progress"])
 
 
 @router.get("/{task_id}/report", response_model=DiscoveryReportResponse)
 async def get_discovery_report(task_id: str) -> DiscoveryReportResponse:
-    result = AsyncResult(task_id, app=celery_app)
-    if result.state == "FAILURE":
+    task = _tasks.get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found.")
+    if task["status"] == "error":
         raise HTTPException(status_code=500, detail="Discovery task failed.")
-    if result.state != "SUCCESS":
+    if task["status"] != "complete":
         raise HTTPException(
             status_code=409,
-            detail=f"Task not complete yet (state={result.state}). Poll /status first.",
+            detail=f"Task not complete yet (status={task['status']}). Poll /status first.",
         )
-    payload: dict = result.result
+    payload = task["result"]
     stores = [ScoredStore(**s) for s in payload.get("scored_stores", [])]
     return DiscoveryReportResponse(
         stores=stores,
