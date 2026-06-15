@@ -1,18 +1,17 @@
 from pathlib import Path
-from typing import Annotated
 
 import markdown as md
 from celery.result import AsyncResult
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.celery_app import celery_app
-from app.core.dependencies import get_current_tenant
-from app.models.campaign import Tenant
 from app.models.store_candidate import ScoredStore
 from app.tasks.discovery import run_phase1_discovery
 
 router = APIRouter(prefix="/discovery", tags=["discovery"])
+
+_PUBLIC_TENANT_ID = "00000000-0000-0000-0000-000000000000"
 
 
 class DiscoveryStartRequest(BaseModel):
@@ -60,26 +59,19 @@ def _build_report_html(report_url: str) -> str:
     return md.markdown(path.read_text(encoding="utf-8"), extensions=["tables", "fenced_code"])
 
 
-
 @router.post("/start", response_model=DiscoveryStartResponse, status_code=202)
-async def start_discovery(
-    body: DiscoveryStartRequest,
-    tenant: Annotated[Tenant, Depends(get_current_tenant)],
-) -> DiscoveryStartResponse:
+async def start_discovery(body: DiscoveryStartRequest) -> DiscoveryStartResponse:
     task = run_phase1_discovery.delay(
         brand_url=body.brand_url,
         vertical_tag=body.vertical_tag,
         location=body.location,
-        tenant_id=str(tenant.id),
+        tenant_id=_PUBLIC_TENANT_ID,
     )
     return DiscoveryStartResponse(task_id=task.id)
 
 
 @router.get("/{task_id}/status", response_model=DiscoveryStatusResponse)
-async def get_discovery_status(
-    task_id: str,
-    tenant: Annotated[Tenant, Depends(get_current_tenant)],
-) -> DiscoveryStatusResponse:
+async def get_discovery_status(task_id: str) -> DiscoveryStatusResponse:
     result = AsyncResult(task_id, app=celery_app)
     status, progress = _celery_state_to_status(result.state)
     if result.state == "PROGRESS" and isinstance(result.info, dict):
@@ -88,10 +80,7 @@ async def get_discovery_status(
 
 
 @router.get("/{task_id}/report", response_model=DiscoveryReportResponse)
-async def get_discovery_report(
-    task_id: str,
-    tenant: Annotated[Tenant, Depends(get_current_tenant)],
-) -> DiscoveryReportResponse:
+async def get_discovery_report(task_id: str) -> DiscoveryReportResponse:
     result = AsyncResult(task_id, app=celery_app)
     if result.state == "FAILURE":
         raise HTTPException(status_code=500, detail="Discovery task failed.")
