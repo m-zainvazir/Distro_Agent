@@ -8,10 +8,10 @@ async def scout_stores(
     vertical_tag: str,
     target_location: str,
     max_stores: int = 5,
-) -> list[dict]:
-    """Run the scout agent and return a list of store candidate dicts.
+) -> tuple[list[dict], list[str]]:
+    """Run the scout agent and return (store dicts, errors).
 
-    Each dict has keys: name, address, google_place_id, instagram_handle,
+    Each store dict has keys: name, address, google_place_id, instagram_handle,
     vibe_score, lead_score, status.
     """
     initial_state: ScoutState = {
@@ -28,15 +28,15 @@ async def scout_stores(
 
     result = await scout_graph.ainvoke(initial_state)
 
-    errors: list[str] = result.get("errors", [])
+    scout_errors: list[str] = result.get("errors", [])
     discovered_stores: list[dict] = result.get("discovered_stores", [])
 
-    if errors:
+    if scout_errors:
         logger.warning(
             "scout_completed_with_errors",
             location=target_location,
             brand=brand_profile.brand_name,
-            errors=errors,
+            errors=scout_errors,
             store_count=len(discovered_stores),
         )
     else:
@@ -47,4 +47,4 @@ async def scout_stores(
             store_count=len(discovered_stores),
         )
 
-    return discovered_stores
+    return discovered_stores, scout_errors

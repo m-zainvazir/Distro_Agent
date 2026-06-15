@@ -109,7 +109,7 @@ async def test_happy_path():
         patch(_SEARCH_PLACES, new=AsyncMock(return_value=places_per_query)),
         patch(_GET_DETAILS, new=AsyncMock(return_value=_FAKE_DETAILS)),
     ):
-        result = await scout_stores(
+        result, errors = await scout_stores(
             brand_profile=_FAKE_BRAND_PROFILE,
             vertical_tag="aesthetic_beauty",
             target_location="Brooklyn, NY",
@@ -117,6 +117,7 @@ async def test_happy_path():
         )
 
     assert len(result) >= 1
+    assert errors == []
     for store in result:
         assert store["google_place_id"], "Every store must have a google_place_id"
         assert "name" in store
@@ -139,7 +140,7 @@ async def test_chain_filter():
         patch(_SEARCH_PLACES, new=AsyncMock(return_value=chain_places)),
         patch(_GET_DETAILS, new=AsyncMock(return_value=_FAKE_DETAILS)),
     ):
-        result = await scout_stores(
+        result, errors = await scout_stores(
             brand_profile=_FAKE_BRAND_PROFILE,
             vertical_tag="aesthetic_beauty",
             target_location="Brooklyn, NY",
@@ -154,7 +155,7 @@ async def test_chain_filter():
 @pytest.mark.asyncio
 async def test_invalid_location():
     """Empty target_location should result in discovered_stores being []."""
-    result = await scout_stores(
+    result, errors = await scout_stores(
         brand_profile=_FAKE_BRAND_PROFILE,
         vertical_tag="aesthetic_beauty",
         target_location="",
@@ -178,14 +179,16 @@ async def test_maps_api_failure():
             ),
         ),
     ):
-        result = await scout_stores(
+        result, errors = await scout_stores(
             brand_profile=_FAKE_BRAND_PROFILE,
             vertical_tag="aesthetic_beauty",
             target_location="Brooklyn, NY",
         )
 
-    # The service swallows errors and returns empty list; state errors are logged
     assert result == [], f"Expected [], got {result}"
+    assert any("Google Maps" in e or "REQUEST_DENIED" in e for e in errors), (
+        f"Expected Google Maps error in errors, got: {errors}"
+    )
 
 
 @pytest.mark.asyncio
@@ -195,7 +198,7 @@ async def test_no_results():
         patch(_GROQ_CLIENT, new=_make_groq_mock()),
         patch(_SEARCH_PLACES, new=AsyncMock(return_value=[])),
     ):
-        result = await scout_stores(
+        result, errors = await scout_stores(
             brand_profile=_FAKE_BRAND_PROFILE,
             vertical_tag="aesthetic_beauty",
             target_location="Brooklyn, NY",
@@ -222,7 +225,7 @@ async def test_deduplication():
         patch(_SEARCH_PLACES, new=AsyncMock(side_effect=search_side_effect)),
         patch(_GET_DETAILS, new=AsyncMock(return_value=_FAKE_DETAILS)),
     ):
-        result = await scout_stores(
+        result, errors = await scout_stores(
             brand_profile=_FAKE_BRAND_PROFILE,
             vertical_tag="aesthetic_beauty",
             target_location="Brooklyn, NY",

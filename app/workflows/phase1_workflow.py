@@ -175,11 +175,12 @@ async def scout_node(state: Phase1State) -> dict:
         return {"store_candidates": [], "errors": errors}
 
     try:
-        raw_stores = await scout_stores(
+        raw_stores, scout_errors = await scout_stores(
             brand_profile=profile,
             vertical_tag=state["vertical_tag"],
             target_location=state.get("target_location", "New York, NY"),
         )
+        errors.extend(scout_errors)
         candidates = [_scout_dict_to_candidate(d) for d in raw_stores]
         logger.info("phase1_scout_complete", count=len(candidates))
         return {"store_candidates": candidates, "errors": errors}
