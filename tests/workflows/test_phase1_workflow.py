@@ -108,7 +108,7 @@ async def test_happy_path_all_nodes_run(tmp_path, monkeypatch):
 
     with (
         patch(_EXTRACT, new=AsyncMock(return_value=_FAKE_BRAND)),
-        patch(_SCOUT, new=AsyncMock(return_value=_FAKE_SCOUT_RAW)),
+        patch(_SCOUT, new=AsyncMock(return_value=(_FAKE_SCOUT_RAW, []))),
         patch(_SCORE, new=AsyncMock(return_value=scored)),
     ):
         result = await phase1_graph.ainvoke(_base_input())
@@ -131,7 +131,7 @@ async def test_report_markdown_content(tmp_path, monkeypatch):
 
     with (
         patch(_EXTRACT, new=AsyncMock(return_value=_FAKE_BRAND)),
-        patch(_SCOUT, new=AsyncMock(return_value=_FAKE_SCOUT_RAW[:1])),
+        patch(_SCOUT, new=AsyncMock(return_value=(_FAKE_SCOUT_RAW[:1], []))),
         patch(_SCORE, new=AsyncMock(return_value=scored)),
     ):
         result = await phase1_graph.ainvoke(_base_input())
@@ -217,7 +217,7 @@ async def test_partial_results_on_analyst_failure(tmp_path, monkeypatch):
 
     with (
         patch(_EXTRACT, new=AsyncMock(return_value=_FAKE_BRAND)),
-        patch(_SCOUT, new=AsyncMock(return_value=_FAKE_SCOUT_RAW)),
+        patch(_SCOUT, new=AsyncMock(return_value=(_FAKE_SCOUT_RAW, []))),
         patch(_SCORE, new=AsyncMock(side_effect=RuntimeError("Groq down"))),
     ):
         result = await phase1_graph.ainvoke(_base_input())
