@@ -22,7 +22,13 @@ import app.models.campaign       # noqa: F401
 import app.models.user           # noqa: F401
 import app.models.sending_domain # noqa: F401
 
+from app.core.config import settings
+
 target_metadata = Base.metadata
+
+# Override alembic.ini sqlalchemy.url with the runtime settings value so that
+# environment variables (e.g. Railway's DATABASE_URL) take effect.
+config.set_main_option("sqlalchemy.url", settings.database_url)
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
