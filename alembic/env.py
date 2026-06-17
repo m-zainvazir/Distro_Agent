@@ -3,7 +3,6 @@ from logging.config import fileConfig
 
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
-from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 
@@ -89,11 +88,24 @@ async def run_async_migrations() -> None:
     and associate a connection with the context.
 
     """
+    import ssl as _ssl
 
-    connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
+    db_url = _resolve_db_url()
+    # Railway's public Postgres proxy requires SSL; pass it via connect_args
+    # so asyncpg negotiates TLS without strict cert verification (proxy cert).
+    connect_args: dict = {}
+    if "railway" in db_url or "rlwy.net" in db_url:
+        ctx = _ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = _ssl.CERT_NONE
+        connect_args["ssl"] = ctx
+
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    connectable = create_async_engine(
+        db_url,
         poolclass=pool.NullPool,
+        connect_args=connect_args,
     )
 
     async with connectable.connect() as connection:
