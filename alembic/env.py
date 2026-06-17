@@ -37,15 +37,20 @@ def _resolve_db_url() -> str:
         "railway" in url and "localhost" not in url and "127.0.0.1" not in url
     )
 
+    # psycopg (v3) dialect prefix for SQLAlchemy sync engine
+    def _to_psycopg(u: str) -> str:
+        return u.replace("postgresql+asyncpg://", "postgresql+psycopg://", 1).replace(
+            "postgresql://", "postgresql+psycopg://", 1
+        )
+
     if is_railway:
-        # Strip asyncpg dialect; use psycopg (v3) which handles sslmode natively.
-        base = url.replace("postgresql+asyncpg://", "postgresql://", 1)
+        base = _to_psycopg(url)
         sep = "&" if "?" in base else "?"
         return f"{base}{sep}sslmode=require"
 
     # Internal Railway (postgres.railway.internal) — no SSL needed.
     if url and "localhost" not in url and "127.0.0.1" not in url:
-        return url.replace("postgresql+asyncpg://", "postgresql://", 1)
+        return _to_psycopg(url)
 
     host = os.environ.get("PGHOST", "")
     if host:
@@ -53,9 +58,9 @@ def _resolve_db_url() -> str:
         password = os.environ.get("PGPASSWORD", "")
         port = os.environ.get("PGPORT", "5432")
         db = os.environ.get("PGDATABASE", "railway")
-        return f"postgresql://{user}:{password}@{host}:{port}/{db}"
+        return f"postgresql+psycopg://{user}:{password}@{host}:{port}/{db}"
 
-    return "postgresql://postgres:postgres@localhost:5432/distroagent"
+    return "postgresql+psycopg://postgres:postgres@localhost:5432/distroagent"
 
 config.set_main_option("sqlalchemy.url", _resolve_db_url())
 
