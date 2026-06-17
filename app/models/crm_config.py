@@ -5,7 +5,6 @@ import uuid
 
 from sqlalchemy import Boolean, Column, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import relationship
 
 from app.models.base import Base, TimestampMixin
 
@@ -51,5 +50,3 @@ class TenantCrmConfig(Base, TimestampMixin):
 
     # CRM-specific extras (Salesforce instance_url, Google OAuth tokens, etc.)
     extra_config = Column(JSONB, nullable=True)
-
-    tenant = relationship("Tenant")

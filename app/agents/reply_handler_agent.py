@@ -24,12 +24,12 @@ from app.core.logging import logger
 # Intent constants
 # ---------------------------------------------------------------------------
 
-INTERESTED = "INTERESTED"
-OBJECTION = "OBJECTION"
-NOT_INTERESTED = "NOT_INTERESTED"
-MEETING_REQUEST = "MEETING_REQUEST"
-
 Intent = Literal["INTERESTED", "OBJECTION", "NOT_INTERESTED", "MEETING_REQUEST"]
+
+INTERESTED: Intent = "INTERESTED"
+OBJECTION: Intent = "OBJECTION"
+NOT_INTERESTED: Intent = "NOT_INTERESTED"
+MEETING_REQUEST: Intent = "MEETING_REQUEST"
 
 # ---------------------------------------------------------------------------
 # State
@@ -323,7 +323,7 @@ async def handle_meeting_request_node(state: ReplyHandlerState) -> dict:
 def route_by_intent(
     state: ReplyHandlerState,
 ) -> Literal["interested", "objection", "not_interested", "meeting_request"]:
-    mapping = {
+    mapping: dict[str, str] = {
         INTERESTED: "interested",
         OBJECTION: "objection",
         NOT_INTERESTED: "not_interested",

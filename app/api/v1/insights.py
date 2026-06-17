@@ -23,8 +23,8 @@ class SimilarBrandsResponse(BaseModel):
 @router.get("/similar-brands", response_model=SimilarBrandsResponse)
 async def get_similar_brands(
     brand_id: uuid.UUID,
+    tenant: Annotated[Tenant, Depends(get_current_tenant)],
     k: int = Query(default=5, ge=1, le=20),
-    tenant: Annotated[Tenant, Depends(get_current_tenant)] = ...,
 ) -> SimilarBrandsResponse:
     """Return anonymized aggregates of brands similar to yours.
 
