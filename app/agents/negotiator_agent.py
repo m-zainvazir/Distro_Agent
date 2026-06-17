@@ -27,7 +27,7 @@ from groq import AsyncGroq
 from langgraph.graph import END, StateGraph
 
 
-from app.agents.hitl_gate import request_human_approval
+from app.agents.hitl_gate import DEAL, request_human_approval
 from app.core.config import settings
 from app.core.logging import logger
 from app.models.rulebook import WholesaleRulebook
@@ -385,13 +385,18 @@ async def hitl_approval_node(state: NegotiatorState) -> dict:
     except Exception as exc:
         logger.warning("negotiator_whatsapp_failed", error=str(exc))
 
+    from app.services.tenant_service import get_autonomy_mode
+
+    autonomy_mode = await get_autonomy_mode(state.get("tenant_id", ""))
     approved: bool = request_human_approval(
         {
             "counter_id": counter_id,
             "objection_type": state["objection_type"],
             "counter_preview": state["counter_offer_body"][:300],
             "escalation_reason": state.get("escalation_reason", ""),
-        }
+        },
+        action_class=DEAL,
+        autonomy_mode=autonomy_mode,
     )
 
     return {"approved": approved, "counter_id": counter_id}

@@ -14,6 +14,10 @@ class Tenant(Base, TimestampMixin):
     name = Column(String(255), nullable=False)
     whatsapp_number = Column(String(20), nullable=True)
     plan = Column(String(50), nullable=False, default="free")
+    # Autonomy mode (Layer 8): "assist" | "semi_auto" | "full_auto"
+    autonomy_mode = Column(
+        String(20), nullable=False, default="assist", server_default="assist"
+    )
 
     users = relationship(
         "User", back_populates="tenant", cascade="all, delete-orphan"

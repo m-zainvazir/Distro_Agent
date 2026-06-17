@@ -23,7 +23,7 @@ from typing_extensions import TypedDict
 from langgraph.graph import END, StateGraph
 from langgraph.types import interrupt
 
-from app.agents.hitl_gate import request_human_approval
+from app.agents.hitl_gate import DEAL, request_human_approval
 from app.core.config import settings
 from app.core.logging import logger
 from app.services.calendar_service import create_event, get_free_slots
@@ -154,6 +154,9 @@ async def propose_slots_node(state: SchedulingState) -> dict:
     except Exception as exc:
         logger.warning("scheduling_whatsapp_failed", error=str(exc))
 
+    from app.services.tenant_service import get_autonomy_mode
+
+    autonomy_mode = await get_autonomy_mode(state.get("tenant_id", ""))
     approved: bool = request_human_approval(
         {
             "type": "slot_proposal",
@@ -161,7 +164,9 @@ async def propose_slots_node(state: SchedulingState) -> dict:
             "buyer_email": state["buyer_email"],
             "proposal_preview": proposal_body[:400],
             "slots": [_fmt_slot(s) for s in slots],
-        }
+        },
+        action_class=DEAL,
+        autonomy_mode=autonomy_mode,
     )
 
     return {"proposal_body": proposal_body, "approved": approved}
@@ -230,11 +235,11 @@ async def confirm_node(state: SchedulingState) -> dict:
 
 async def notify_node(state: SchedulingState) -> dict:
     """Send a WhatsApp alert to the founder confirming the booking."""
+    slot = state.get("selected_slot") or {}
+    slot_display = _fmt_slot(slot) if slot else "a chosen time"
+
     try:
         from app.services.whatsapp_service import send_deal_alert
-
-        slot = state.get("selected_slot") or {}
-        slot_display = _fmt_slot(slot) if slot else "a chosen time"
 
         await send_deal_alert(
             phone=settings.whatsapp_founder_phone,
@@ -247,6 +252,22 @@ async def notify_node(state: SchedulingState) -> dict:
         )
     except Exception as exc:
         logger.warning("scheduling_notify_failed", error=str(exc))
+
+    try:
+        from app.services.crm_sync import CrmEventType, push_event
+
+        await push_event(
+            tenant_id=state.get("tenant_id", ""),
+            event_type=CrmEventType.MEETING_BOOKED,
+            event_data={
+                "store_name": state.get("store_name", ""),
+                "store_email": state.get("buyer_email", ""),
+                "meeting_time": slot_display,
+                "meeting_url": state.get("meet_link", ""),
+            },
+        )
+    except Exception as exc:
+        logger.warning("crm_sync_meeting_booked_failed", error=str(exc))
 
     return {"routing_action": "meeting_booked"}
 

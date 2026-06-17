@@ -14,7 +14,7 @@ from typing_extensions import TypedDict
 from groq import AsyncGroq
 from langgraph.graph import END, StateGraph
 
-from app.agents.hitl_gate import request_human_approval
+from app.agents.hitl_gate import ROUTINE_OUTREACH, request_human_approval
 from app.core.config import settings
 from app.core.logging import logger
 from app.models.brand_profile import BrandProfile
@@ -255,15 +255,23 @@ async def hitl_approval_node(state: CopywriterState) -> dict:
     except Exception as exc:
         logger.warning("whatsapp_send_failed", error=str(exc))
 
-    # Pause graph — resumes when webhook calls Command(resume=True/False)
-    approved: bool = request_human_approval({
-        "email_id": str(email_id),
-        "store_name": state["store"].store.name,
-        "subject_a": state["draft_subject_a"],
-        "subject_b": state["draft_subject_b"],
-        "body_preview": state["draft_body"][:300],
-        "personalization_score": state["personalization_score"],
-    })
+    # Pause graph — resumes when webhook calls Command(resume=True/False).
+    # Routine outreach: auto-approves under semi_auto / full_auto autonomy.
+    from app.services.tenant_service import get_autonomy_mode
+
+    autonomy_mode = await get_autonomy_mode(state.get("tenant_id", ""))
+    approved: bool = request_human_approval(
+        {
+            "email_id": str(email_id),
+            "store_name": state["store"].store.name,
+            "subject_a": state["draft_subject_a"],
+            "subject_b": state["draft_subject_b"],
+            "body_preview": state["draft_body"][:300],
+            "personalization_score": state["personalization_score"],
+        },
+        action_class=ROUTINE_OUTREACH,
+        autonomy_mode=autonomy_mode,
+    )
 
     return {"approved": approved}
 
