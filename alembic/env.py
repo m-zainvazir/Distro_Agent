@@ -45,8 +45,10 @@ def _resolve_db_url() -> str:
 
     if is_railway:
         base = _to_psycopg(url)
+        # Railway's public proxy (rlwy.net) terminates SSL at the load balancer;
+        # the connection to the proxy itself should NOT negotiate SSL.
         sep = "&" if "?" in base else "?"
-        return f"{base}{sep}sslmode=require"
+        return f"{base}{sep}sslmode=disable"
 
     # Internal Railway (postgres.railway.internal) — no SSL needed.
     if url and "localhost" not in url and "127.0.0.1" not in url:
