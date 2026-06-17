@@ -61,7 +61,6 @@ _BASE_WEIGHTS = {
 # Groq llama-3.3-70b pricing: $0.59 / $0.79 per 1M tokens
 _COST_PER_1K_INPUT = 0.00059
 _COST_PER_1K_OUTPUT = 0.00079
-_VISION_BUDGET_USD = 0.50
 
 
 def _compute_text_score(
@@ -169,12 +168,22 @@ async def score_vision_node(state: AnalystState) -> dict:
     updated: list[ScoredStore] = []
 
     for scored in state["scores_in_progress"]:
+        # Tier gate: score must exceed VISION_MIN_SCORE (settings.vision_score_threshold)
         if scored.text_score < threshold:
             updated.append(scored)
             continue
 
-        if cost >= _VISION_BUDGET_USD:
-            logger.warning("vision_budget_exceeded", cost_usd=round(cost, 4))
+        # Per-lead budget gate (Layers 14 & 16)
+        from app.core.budget import LeadBudget  # noqa: PLC0415
+
+        lead_id = str(scored.store.place_id or scored.store.name)
+        _vision_est = (300 / 1000) * _COST_PER_1K_INPUT + (100 / 1000) * _COST_PER_1K_OUTPUT
+        lead_budget = LeadBudget(
+            lead_id=lead_id,
+            max_tokens=settings.max_tokens_per_lead,
+            max_cost_usd=settings.max_cost_per_lead_usd,
+        )
+        if not lead_budget.check_and_reserve(_vision_est, estimated_tokens=400):
             updated.append(scored)
             continue
 
@@ -190,10 +199,10 @@ async def score_vision_node(state: AnalystState) -> dict:
             (vibe.score * 0.35) + (scored.text_score * 0.65), 3
         )
 
-        # Approximate token cost
+        # Track batch-level totals for state reporting
         token_usage["input"] = token_usage.get("input", 0) + 300
         token_usage["output"] = token_usage.get("output", 0) + 100
-        cost += (300 / 1000) * _COST_PER_1K_INPUT + (100 / 1000) * _COST_PER_1K_OUTPUT
+        cost += _vision_est
 
         updated.append(
             ScoredStore(
@@ -237,6 +246,10 @@ async def compute_final_scores_node(state: AnalystState) -> dict:
     token_usage: dict[str, int] = dict(state.get("total_token_usage", {"input": 0, "output": 0}))
     cost = float(state.get("total_cost_usd", 0.0))
 
+    from app.core.budget import LeadBudget  # noqa: PLC0415
+
+    _summary_est = (300 / 1000) * _COST_PER_1K_INPUT + (200 / 1000) * _COST_PER_1K_OUTPUT
+
     for scored in state["scores_in_progress"]:
         vision_line = ""
         if scored.visual_vibe_score:
@@ -252,6 +265,34 @@ async def compute_final_scores_node(state: AnalystState) -> dict:
             f"{vision_line}"
             f"Final score: {scored.final_score}/10\n"
         )
+
+        # Per-lead budget gate before summary LLM call
+        lead_id = str(scored.store.place_id or scored.store.name)
+        lead_budget = LeadBudget(
+            lead_id=lead_id,
+            max_tokens=settings.max_tokens_per_lead,
+            max_cost_usd=settings.max_cost_per_lead_usd,
+        )
+        if not lead_budget.check_and_reserve(_summary_est, estimated_tokens=500):
+            match_summary = f"{scored.store.name} scored {scored.final_score:.1f}/10 overall."
+            why_matched = scored.category_score.reasoning
+            finalized.append(
+                ScoredStore(
+                    store=scored.store,
+                    visual_vibe_score=scored.visual_vibe_score,
+                    category_score=scored.category_score,
+                    price_score=scored.price_score,
+                    engagement_score=scored.engagement_score,
+                    wholesale_score=scored.wholesale_score,
+                    text_score=scored.text_score,
+                    final_score=scored.final_score,
+                    vision_was_run=scored.vision_was_run,
+                    match_summary=match_summary,
+                    why_matched=why_matched,
+                    outreach_priority=scored.outreach_priority,
+                )
+            )
+            continue
 
         try:
             response = await client.chat.completions.create(

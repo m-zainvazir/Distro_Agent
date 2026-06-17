@@ -36,6 +36,15 @@ class Settings(BaseSettings):
     # Stripe
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""
+    # Per-lead token/cost budget (Blueprint Layers 14 & 16)
+    max_tokens_per_lead: int = 4000
+    max_cost_per_lead_usd: float = 0.05
+    # Automated domain provisioning (Layer 20)
+    cloudflare_api_token: str = ""
+    cloudflare_account_id: str = ""
+    sendgrid_domain_auth_uid: str = ""
+    # Comma-separated templates; {brand} is replaced with the slugified brand name
+    domain_name_templates: str = "try{brand}.com,{brand}wholesale.com,shop{brand}.com,{brand}outreach.com"
 
 
 settings = Settings()  # type: ignore[call-arg]

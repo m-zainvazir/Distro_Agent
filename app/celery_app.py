@@ -22,6 +22,7 @@ celery_app = Celery(
         "app.tasks.reply_tasks",
         "app.tasks.calibration_task",
         "app.tasks.invoice_task",
+        "app.tasks.metrics_task",
     ],
 )
 
@@ -45,6 +46,10 @@ celery_app.conf.update(
         },
         "calibrate-scoring-weights": {
             "task": "calibration.run_daily",
+            "schedule": 86400.0,  # every 24 hours
+        },
+        "send-daily-kpi-digest": {
+            "task": "metrics.send_daily_digest",
             "schedule": 86400.0,  # every 24 hours
         },
     },

@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 import asyncio
 import json
 
 from groq import AsyncGroq
 
+from app.core.budget import LeadBudget
 from app.core.config import settings
 from app.core.logging import logger
 
@@ -27,14 +30,23 @@ _NAME_CONSTRAINT = (
     "Use this name verbatim for brand_name. Do NOT use a product name, sub-brand, or line name."
 )
 
+# Groq llama-3.3-70b pricing: $0.59 / $0.79 per 1M tokens
+_COST_PER_1K_INPUT = 0.00059
+_COST_PER_1K_OUTPUT = 0.00079
+
 
 async def analyze_brand_aesthetics(
     about_text: str,
     products: list[dict],
     vertical_tag: str,
     canonical_name: str = "",
+    budget: LeadBudget | None = None,
 ) -> tuple[dict, dict[str, int]]:
-    """Call Groq (text-only) and return (analysis_dict, token_usage)."""
+    """Call Groq (text-only) and return (analysis_dict, token_usage).
+
+    If *budget* is supplied, actual token usage is recorded to the lead ledger
+    after each successful call via ``budget.record_usage``.
+    """
     client = AsyncGroq(api_key=settings.groq_api_key)
 
     product_summary = "\n".join(
@@ -75,6 +87,15 @@ async def analyze_brand_aesthetics(
                 input_tokens=token_usage["input_tokens"],
                 output_tokens=token_usage["output_tokens"],
             )
+            if budget is not None:
+                actual_cost = (
+                    (token_usage["input_tokens"] / 1000) * _COST_PER_1K_INPUT
+                    + (token_usage["output_tokens"] / 1000) * _COST_PER_1K_OUTPUT
+                )
+                budget.record_usage(
+                    tokens=token_usage["input_tokens"] + token_usage["output_tokens"],
+                    cost_usd=actual_cost,
+                )
             return analysis, token_usage
         except Exception as exc:
             last_exc = exc
