@@ -22,13 +22,30 @@ import app.models.campaign       # noqa: F401
 import app.models.user           # noqa: F401
 import app.models.sending_domain # noqa: F401
 
-from app.core.config import settings
+import os
 
 target_metadata = Base.metadata
 
-# Override alembic.ini sqlalchemy.url with the runtime settings value so that
-# environment variables (e.g. Railway's DATABASE_URL) take effect.
-config.set_main_option("sqlalchemy.url", settings.database_url)
+# Build the DB URL from raw env vars so Railway's injected PG* variables
+# take precedence over anything in the .env file (which is copied into Docker).
+def _resolve_db_url() -> str:
+    # Railway injects DATABASE_URL directly when the service references Postgres.
+    # Fall back to constructing it from individual PG* vars (also injected by Railway).
+    url = os.environ.get("DATABASE_URL", "")
+    if url and "localhost" not in url and "127.0.0.1" not in url:
+        # Ensure asyncpg dialect
+        return url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    host = os.environ.get("PGHOST", "")
+    if host:
+        user = os.environ.get("PGUSER", "postgres")
+        password = os.environ.get("PGPASSWORD", "")
+        port = os.environ.get("PGPORT", "5432")
+        db = os.environ.get("PGDATABASE", "railway")
+        return f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{db}"
+    # Local fallback
+    return url or "postgresql+asyncpg://postgres:postgres@localhost:5432/distroagent"
+
+config.set_main_option("sqlalchemy.url", _resolve_db_url())
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
