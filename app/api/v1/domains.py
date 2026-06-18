@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.dependencies import get_current_tenant
 from app.core.logging import logger
@@ -81,6 +82,15 @@ async def provision_domain(
     Requires CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID to be set.
     The domain is registered under the brand name and placed into warmup-day-1.
     """
+    if not settings.cloudflare_api_token:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error_code": "CLOUDFLARE_NOT_CONFIGURED",
+                "message": "Set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID in Railway environment variables to enable domain provisioning.",
+            },
+        )
+
     tenant_id = uuid.UUID(str(tenant.id))
     try:
         domain_row = await provision_sending_domain(
