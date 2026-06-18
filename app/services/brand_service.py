@@ -86,22 +86,25 @@ async def upsert_brand_embedding(
     from app.core.qdrant import get_qdrant_client
     from qdrant_client.models import PointStruct
 
-    client = get_qdrant_client()
-    await client.upsert(
-        collection_name="brand_embeddings",
-        points=[
-            PointStruct(
-                id=str(record_id),
-                vector=profile.embedding_vector,
-                payload={
-                    "brand_id": str(record_id),
-                    "tenant_id": str(tenant_id),
-                    "aesthetic_keywords": profile.aesthetic_keywords,
-                    "price_range_min": profile.price_range[0],
-                    "price_range_max": profile.price_range[1],
-                    "product_categories": profile.product_categories,
-                },
-            )
-        ],
-    )
-    logger.info("brand_embedding_upserted", record_id=str(record_id))
+    try:
+        client = get_qdrant_client()
+        await client.upsert(
+            collection_name="brand_embeddings",
+            points=[
+                PointStruct(
+                    id=str(record_id),
+                    vector=profile.embedding_vector,
+                    payload={
+                        "brand_id": str(record_id),
+                        "tenant_id": str(tenant_id),
+                        "aesthetic_keywords": profile.aesthetic_keywords,
+                        "price_range_min": profile.price_range[0],
+                        "price_range_max": profile.price_range[1],
+                        "product_categories": profile.product_categories,
+                    },
+                )
+            ],
+        )
+        logger.info("brand_embedding_upserted", record_id=str(record_id))
+    except Exception as exc:
+        logger.warning("brand_embedding_skipped", reason=str(exc))
