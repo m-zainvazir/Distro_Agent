@@ -37,16 +37,26 @@ def _resolve_db_url() -> str:
         "railway" in url and "localhost" not in url and "127.0.0.1" not in url
     )
 
-    # psycopg (v3) dialect prefix for SQLAlchemy sync engine
+    # psycopg (v3) dialect — strip asyncpg, keep everything else
     def _to_psycopg(u: str) -> str:
         return u.replace("postgresql+asyncpg://", "postgresql+psycopg://", 1).replace(
             "postgresql://", "postgresql+psycopg://", 1
         )
 
+    # Neon: valid CA cert, sslmode=require already in URL, channel_binding not
+    # supported by psycopg v3 so strip it.
+    if "neon.tech" in url:
+        base = _to_psycopg(url)
+        base = base.replace("&channel_binding=require", "").replace(
+            "channel_binding=require&", ""
+        ).replace("channel_binding=require", "")
+        if "sslmode=" not in base:
+            sep = "&" if "?" in base else "?"
+            base = f"{base}{sep}sslmode=require"
+        return base
+
     if is_railway:
         base = _to_psycopg(url)
-        # Railway's public proxy (rlwy.net) terminates SSL at the load balancer;
-        # the connection to the proxy itself should NOT negotiate SSL.
         sep = "&" if "?" in base else "?"
         return f"{base}{sep}sslmode=disable"
 
