@@ -19,7 +19,7 @@ async def compute_tenant_kpis(
     db: AsyncSession,
 ) -> KpiSummary:
     """Aggregate distribution KPIs for *tenant_id* over the last *lookback_days* days."""
-    since = datetime.now(timezone.utc) - timedelta(days=lookback_days)
+    since = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).replace(tzinfo=None)
 
     # --- leads ---
     r = await db.execute(
