@@ -25,7 +25,15 @@ def _engine_params(raw_url: str) -> tuple[str, dict]:
 
 
 _db_url, _connect_args = _engine_params(settings.database_url)
-engine = create_async_engine(_db_url, echo=False, connect_args=_connect_args)
+engine = create_async_engine(
+    _db_url,
+    echo=False,
+    connect_args=_connect_args,
+    pool_pre_ping=True,   # discard stale connections before use
+    pool_recycle=300,     # recycle connections every 5 min (before Neon idle timeout)
+    pool_size=5,
+    max_overflow=10,
+)
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
 
