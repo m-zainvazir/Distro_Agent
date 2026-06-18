@@ -2,12 +2,10 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-import httpx
 import markdown as md
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 
-from app.core.config import settings
 from app.core.logging import logger
 from app.models.store_candidate import ScoredStore
 from app.workflows.phase1_workflow import phase1_graph
@@ -134,28 +132,3 @@ async def get_discovery_report(task_id: str) -> DiscoveryReportResponse:
     )
 
 
-@router.get("/debug/maps-key")
-async def debug_maps_key() -> dict:
-    """Diagnostic: confirm the Maps key is loaded and make a live test call."""
-    key = settings.google_maps_api_key
-    key_preview = f"{key[:8]}...{key[-4:]}" if len(key) > 12 else f"[{len(key)} chars]"
-
-    payload = {"textQuery": "boutique New York"}
-    headers = {
-        "X-Goog-Api-Key": key,
-        "X-Goog-FieldMask": "places.id,places.displayName",
-    }
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.post(
-            "https://places.googleapis.com/v1/places:searchText",
-            json=payload,
-            headers=headers,
-        )
-
-    return {
-        "key_set": bool(key),
-        "key_length": len(key),
-        "key_preview": key_preview,
-        "http_status": resp.status_code,
-        "google_response": resp.json(),
-    }

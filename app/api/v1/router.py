@@ -2,7 +2,9 @@ from fastapi import APIRouter
 
 from app.api.v1.auth import router as auth_router
 from app.api.v1.brands import router as brands_router
+from app.api.v1.budget import router as budget_router
 from app.api.v1.campaigns import router as campaigns_router
+from app.api.v1.domains import router as domains_router
 from app.api.v1.endpoints.discovery import router as discovery_router
 from app.api.v1.governance import router as governance_router
 from app.api.v1.metrics import router as metrics_router
@@ -16,7 +18,9 @@ api_router = APIRouter(prefix="/api/v1")
 
 api_router.include_router(auth_router)
 api_router.include_router(brands_router)
+api_router.include_router(budget_router)
 api_router.include_router(campaigns_router)
+api_router.include_router(domains_router)
 api_router.include_router(governance_router)
 api_router.include_router(insights_router)
 api_router.include_router(metrics_router)
