@@ -1,5 +1,6 @@
+import asyncio
 import os
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import AsyncGenerator
 
 from fastapi import FastAPI
@@ -27,7 +28,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as exc:
         logger.warning("qdrant_init_failed", error=str(exc))
 
-    yield
+    # Optional in-process retention sweep loop (disabled unless interval set).
+    from app.core.scheduler import start_retention_scheduler
+
+    retention_task = start_retention_scheduler()
+
+    try:
+        yield
+    finally:
+        if retention_task is not None:
+            retention_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await retention_task
 
 
 app = FastAPI(title="DistroAgent", version="0.1.0", lifespan=lifespan)

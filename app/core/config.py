@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     # Shared secret for cron-triggered endpoints (e.g. POST /retention/run).
     # Must be set to enable them; an external scheduler sends it as X-Cron-Token.
     cron_token: str = ""
+    # In-process retention sweep scheduler: run the retention sweep every N hours
+    # inside the live web service. 0 (default) = disabled (use the cron endpoint).
+    retention_sweep_interval_hours: int = 0
     # Per-lead token/cost budget (Blueprint Layers 14 & 16)
     max_tokens_per_lead: int = 4000
     max_cost_per_lead_usd: float = 0.05
