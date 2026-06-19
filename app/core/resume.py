@@ -111,6 +111,10 @@ async def resume_graph_for_email(email_id: str, approved: bool) -> None:
         from app.agents.scheduling_agent import build_scheduling_graph
 
         graph = build_scheduling_graph(checkpointer=checkpointer)
+    elif graph_type == "retention":
+        from app.agents.retention_agent import build_retention_graph
+
+        graph = build_retention_graph(checkpointer=checkpointer)
     else:
         from app.agents.copywriter_agent import build_copywriter_graph
 
