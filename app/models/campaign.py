@@ -126,7 +126,7 @@ class OutreachEmail(Base, TimestampMixin):
     tenant_id = Column(
         UUID(as_uuid=True),
         ForeignKey("tenants.id", ondelete="CASCADE"),
-        nullable=True,
+        nullable=False,
         index=True,
     )
     store_id = Column(

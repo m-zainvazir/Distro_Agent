@@ -329,6 +329,7 @@ async def _persist_pending_email(state: CopywriterState) -> uuid.UUID:
                 id=email_id,
                 campaign_id=uuid.UUID(state["campaign_id"]),
                 store_id=uuid.UUID(state["store_db_id"]),
+                tenant_id=uuid.UUID(state["tenant_id"]),
                 subject=state["draft_subject_a"],
                 body=state["draft_body"],
                 outcome="pending_approval",
