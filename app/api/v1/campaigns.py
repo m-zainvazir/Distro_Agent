@@ -53,7 +53,7 @@ async def simulate_reply(
     hit the approve/reject endpoint.
     """
     from app.agents.reply_handler_agent import build_reply_handler_graph
-    from app.services.campaign_service import _pending_approvals
+    from app.services.campaign_service import list_pending_approval_ids
 
     graph = build_reply_handler_graph()
     result = await graph.ainvoke({
@@ -67,7 +67,7 @@ async def simulate_reply(
         "notes": "",
     })
 
-    pending_ids = list(_pending_approvals.keys())
+    pending_ids = list_pending_approval_ids()
     logger.info(
         "simulate_reply_complete",
         intent=result.get("intent"),

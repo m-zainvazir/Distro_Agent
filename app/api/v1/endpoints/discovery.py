@@ -1,12 +1,12 @@
 import uuid
 from pathlib import Path
-from typing import Any
 
 import markdown as md
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 
 from app.core.logging import logger
+from app.core.state_store import StateStore
 from app.models.store_candidate import ScoredStore
 from app.workflows.phase1_workflow import phase1_graph
 
@@ -14,8 +14,10 @@ router = APIRouter(prefix="/discovery", tags=["discovery"])
 
 _PUBLIC_TENANT_ID = "00000000-0000-0000-0000-000000000000"
 
-# In-memory task store — sufficient for demo; lost on pod restart
-_tasks: dict[str, dict[str, Any]] = {}
+# Redis-backed task store (in-memory fallback) — survives restarts / multi-worker.
+# Discovery runs finish in well under an hour; expire stale tasks after that.
+_TASK_TTL_SECONDS = 3600
+_tasks = StateStore("discovery:task", default_ttl=_TASK_TTL_SECONDS)
 
 
 class DiscoveryStartRequest(BaseModel):
@@ -56,7 +58,7 @@ async def _run_discovery(
     location: str,
 ) -> None:
     try:
-        _tasks[task_id] = {"status": "processing", "progress": 30}
+        _tasks.set(task_id, {"status": "processing", "progress": 30})
         result = await phase1_graph.ainvoke(
             {
                 "brand_url": brand_url,
@@ -71,19 +73,22 @@ async def _run_discovery(
             }
         )
         scored = result.get("scored_stores", [])
-        _tasks[task_id] = {
-            "status": "complete",
-            "progress": 100,
-            "result": {
-                "scored_stores": [s.model_dump() for s in scored],
-                "report_url": result.get("report_url", ""),
-                "errors": result.get("errors", []),
+        _tasks.set(
+            task_id,
+            {
+                "status": "complete",
+                "progress": 100,
+                "result": {
+                    "scored_stores": [s.model_dump() for s in scored],
+                    "report_url": result.get("report_url", ""),
+                    "errors": result.get("errors", []),
+                },
             },
-        }
+        )
         logger.info("discovery_complete", task_id=task_id, scored=len(scored))
     except Exception as exc:
         logger.exception("discovery_failed", task_id=task_id, error=str(exc))
-        _tasks[task_id] = {"status": "error", "progress": 0}
+        _tasks.set(task_id, {"status": "error", "progress": 0})
 
 
 @router.post("/start", response_model=DiscoveryStartResponse, status_code=202)
@@ -92,7 +97,7 @@ async def start_discovery(
     background_tasks: BackgroundTasks,
 ) -> DiscoveryStartResponse:
     task_id = str(uuid.uuid4())
-    _tasks[task_id] = {"status": "processing", "progress": 0}
+    _tasks.set(task_id, {"status": "processing", "progress": 0})
     background_tasks.add_task(
         _run_discovery,
         task_id,
