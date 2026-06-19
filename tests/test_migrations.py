@@ -18,11 +18,11 @@ def test_single_head() -> None:
     assert len(_script().get_heads()) == 1
 
 
-def test_head_is_tenant_not_null_revision() -> None:
+def test_head_revision_chains_from_previous() -> None:
     script = _script()
     (head,) = script.get_heads()
-    assert head == "a1f2b3c4d5e6"
-    assert script.get_revision(head).down_revision == "f0a1b2c3d4e5"
+    assert head == "b2c3d4e5f6a7"
+    assert script.get_revision(head).down_revision == "a1f2b3c4d5e6"
 
 
 def test_full_chain_walks_to_base() -> None:
