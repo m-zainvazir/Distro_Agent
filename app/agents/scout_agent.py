@@ -109,6 +109,10 @@ async def generate_queries_node(state: ScoutState) -> dict:
     vertical_tag: str = state["vertical_tag"]
     target_location: str = state["target_location"]
 
+    # Context Router: inject vertical-specific store-type guidance.
+    from app.core.context_router import resolve_vertical
+
+    vertical_guidance = resolve_vertical(vertical_tag).scouting_prompt_addendum()
     user_content = (
         f"Brand: {brand_profile.brand_name}\n"
         f"Vertical: {vertical_tag}\n"
@@ -117,6 +121,7 @@ async def generate_queries_node(state: ScoutState) -> dict:
         f"Target location: {target_location}\n\n"
         "Generate 5-8 search queries to find indie retail boutiques in this location "
         "that would be a great fit to carry this brand's products."
+        f"{vertical_guidance}"
     )
 
     client = AsyncGroq(api_key=settings.groq_api_key)

@@ -56,11 +56,16 @@ async def analyze_brand_aesthetics(
     name_instruction = (
         f"\n\n{_NAME_CONSTRAINT.format(name=canonical_name)}" if canonical_name else ""
     )
+    # Context Router: inject niche-aware extraction guidance for this vertical.
+    from app.core.context_router import resolve_vertical
+
+    vertical_guidance = resolve_vertical(vertical_tag).extraction_prompt_addendum()
     user_content = (
         f"Vertical: {vertical_tag}\n\n"
         f"About text:\n{about_text[:2000]}\n\n"
         f"Product catalog sample:\n{product_summary}"
         f"{name_instruction}"
+        f"{vertical_guidance}"
     )
 
     last_exc: Exception | None = None
