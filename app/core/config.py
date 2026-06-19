@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     # Stripe
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""
+    # Shared secret for cron-triggered endpoints (e.g. POST /retention/run).
+    # Must be set to enable them; an external scheduler sends it as X-Cron-Token.
+    cron_token: str = ""
     # Per-lead token/cost budget (Blueprint Layers 14 & 16)
     max_tokens_per_lead: int = 4000
     max_cost_per_lead_usd: float = 0.05

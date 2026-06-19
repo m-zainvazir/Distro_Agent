@@ -8,6 +8,7 @@ from app.api.v1.domains import router as domains_router
 from app.api.v1.endpoints.discovery import router as discovery_router
 from app.api.v1.governance import router as governance_router
 from app.api.v1.metrics import router as metrics_router
+from app.api.v1.retention import router as retention_router
 from app.api.v1.scoring import router as scoring_router
 from app.api.v1.insights import router as insights_router
 from app.api.v1.stripe_webhook import router as stripe_webhook_router
@@ -24,6 +25,7 @@ api_router.include_router(domains_router)
 api_router.include_router(governance_router)
 api_router.include_router(insights_router)
 api_router.include_router(metrics_router)
+api_router.include_router(retention_router)
 api_router.include_router(scoring_router)
 api_router.include_router(discovery_router)
 api_router.include_router(tenant_router)
