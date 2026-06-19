@@ -5,6 +5,7 @@ from typing import AsyncGenerator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.health import router as health_router
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.logging import logger
@@ -49,15 +50,4 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 
 app.include_router(api_router)
-
-
-# ---------------------------------------------------------------------------
-# Health check
-# ---------------------------------------------------------------------------
-
-@app.get("/health", tags=["health"])
-async def health() -> dict:
-    return {
-        "status": "ok",
-        "langsmith": bool(settings.langsmith_api_key),
-    }
+app.include_router(health_router)

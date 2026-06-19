@@ -1,9 +1,13 @@
+import asyncio
 import re
+import time
 from collections.abc import AsyncGenerator
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import settings
+from app.core.logging import logger
 from app.models.base import Base  # noqa: F401 — single source of truth for all models
 
 
@@ -40,3 +44,39 @@ AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with AsyncSessionLocal() as session:
         yield session
+
+
+async def check_db(max_attempts: int = 3, base_delay: float = 0.5) -> dict:
+    """Run `SELECT 1` with retries, returning a health summary.
+
+    Neon's free tier suspends compute after ~5 min idle; the first connection
+    after a suspend can fail (connection refused/closed) for the ~1-3s the
+    compute takes to wake. Retrying with linear backoff lets a health probe wake
+    the database rather than report it down.
+
+    Returns ``{"ok", "attempts", "latency_ms", "error"}``.
+    """
+    last_error: str | None = None
+    for attempt in range(1, max_attempts + 1):
+        start = time.monotonic()
+        try:
+            async with AsyncSessionLocal() as session:
+                await session.execute(text("SELECT 1"))
+            return {
+                "ok": True,
+                "attempts": attempt,
+                "latency_ms": round((time.monotonic() - start) * 1000, 1),
+                "error": None,
+            }
+        except Exception as exc:
+            last_error = str(exc)[:200]
+            logger.warning("db_health_attempt_failed", attempt=attempt, error=last_error)
+            if attempt < max_attempts:
+                await asyncio.sleep(base_delay * attempt)
+
+    return {
+        "ok": False,
+        "attempts": max_attempts,
+        "latency_ms": None,
+        "error": last_error,
+    }
