@@ -6,6 +6,11 @@ class Settings(BaseSettings):
 
     groq_api_key: str
     groq_model: str = "llama-3.3-70b-versatile"
+    # Multi-provider LLM failover (Blueprint Layer 18). When a fallback key or
+    # model is set, LLM calls fail over to it on rate-limit / 5xx / connection
+    # errors. Empty (default) → single-provider behaviour, no failover.
+    groq_api_key_fallback: str = ""
+    groq_model_fallback: str = ""
     etsy_api_key: str = ""
     database_url: str = "postgresql+asyncpg://localhost/distroagent"
     redis_url: str = "redis://localhost:6379"

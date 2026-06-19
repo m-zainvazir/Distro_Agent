@@ -19,6 +19,7 @@ from app.services.crm_sync import (
     _hmac_signature,
     _push_google_sheets,
     _push_hubspot,
+    _push_klaviyo,
     _push_salesforce,
     _push_webhook,
     push_event,
@@ -200,6 +201,55 @@ async def test_push_webhook_payload_is_valid_json() -> None:
     parsed = json.loads(body)
     assert parsed["event_type"] == "deal_closed"
     assert parsed["store_email"] == _STORE_EMAIL
+
+
+# ---------------------------------------------------------------------------
+# Klaviyo adapter
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_push_klaviyo_tracks_event() -> None:
+    config = _make_config(crm_type="klaviyo", api_key="pk_test")
+    route = respx.post("https://a.klaviyo.com/api/events/").mock(
+        return_value=Response(202)
+    )
+    event = _make_event(CrmEventType.RESTOCK_OPPORTUNITY, amount_usd=0.0, restock_days=45)
+
+    await _push_klaviyo(event, config)
+
+    assert route.called
+    sent = json.loads(route.calls.last.request.content)
+    attrs = sent["data"]["attributes"]
+    assert attrs["metric"]["data"]["attributes"]["name"] == "DistroAgent Restock Opportunity"
+    assert attrs["profile"]["data"]["attributes"]["email"] == _STORE_EMAIL
+    assert attrs["properties"]["restock_days"] == 45
+    # Auth + revision headers present
+    headers = route.calls.last.request.headers
+    assert headers["authorization"] == "Klaviyo-API-Key pk_test"
+    assert headers["revision"] == "2024-10-15"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_push_klaviyo_skips_without_email() -> None:
+    config = _make_config(crm_type="klaviyo", api_key="pk_test")
+    route = respx.post("https://a.klaviyo.com/api/events/").mock(return_value=Response(202))
+    event = CrmEvent(
+        event_type=CrmEventType.EMAIL_SENT,
+        tenant_id=_TENANT_ID,
+        store_name=_STORE_NAME,
+        store_email="",  # no email → cannot upsert a profile
+    )
+
+    await _push_klaviyo(event, config)
+
+    assert not route.called
+
+
+def test_klaviyo_registered_in_dispatch_table() -> None:
+    assert _ADAPTERS["klaviyo"] is _push_klaviyo
 
 
 # ---------------------------------------------------------------------------
@@ -461,5 +511,11 @@ async def test_push_event_adapter_failure_does_not_raise() -> None:
 
 @pytest.mark.asyncio
 async def test_push_event_all_adapters_registered() -> None:
-    """Dispatch table must cover all four supported CRM types."""
-    assert set(_ADAPTERS.keys()) == {"webhook", "hubspot", "salesforce", "google_sheets"}
+    """Dispatch table must cover all supported CRM types."""
+    assert set(_ADAPTERS.keys()) == {
+        "webhook",
+        "hubspot",
+        "salesforce",
+        "google_sheets",
+        "klaviyo",
+    }

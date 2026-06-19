@@ -571,6 +571,86 @@ async def _push_google_sheets(event: CrmEvent, config: Any) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Adapter — Klaviyo (Events API)
+# ---------------------------------------------------------------------------
+
+_KLAVIYO_BASE = "https://a.klaviyo.com/api"
+_KLAVIYO_REVISION = "2024-10-15"
+
+
+def _klaviyo_headers(config: Any) -> dict[str, str]:
+    return {
+        "Authorization": f"Klaviyo-API-Key {config.api_key}",
+        "revision": _KLAVIYO_REVISION,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
+
+async def _push_klaviyo(event: CrmEvent, config: Any) -> None:
+    """Track an event in Klaviyo, upserting the profile by email in the same call."""
+    if not event.store_email:
+        logger.warning("crm_klaviyo_missing_email", tenant_id=event.tenant_id)
+        return
+
+    metric_name = f"DistroAgent {event.event_type.value.replace('_', ' ').title()}"
+    body: dict[str, Any] = {
+        "data": {
+            "type": "event",
+            "attributes": {
+                "properties": {
+                    "store_name": event.store_name,
+                    "lead_score": event.lead_score,
+                    "email_subject": event.email_subject,
+                    "reply_intent": event.reply_intent,
+                    "meeting_time": event.meeting_time,
+                    "meeting_url": event.meeting_url,
+                    "amount_usd": event.amount_usd,
+                    "invoice_id": event.invoice_id,
+                    "restock_days": event.restock_days,
+                },
+                "time": event.occurred_at.isoformat(),
+                "metric": {
+                    "data": {"type": "metric", "attributes": {"name": metric_name}}
+                },
+                "profile": {
+                    "data": {
+                        "type": "profile",
+                        "attributes": {
+                            "email": event.store_email,
+                            "organization": event.store_name,
+                        },
+                    }
+                },
+            },
+        }
+    }
+
+    async with httpx.AsyncClient(timeout=_HTTP_TIMEOUT) as client:
+        resp = await _post_with_retry(
+            client,
+            f"{_KLAVIYO_BASE}/events/",
+            headers=_klaviyo_headers(config),
+            json_body=body,
+        )
+
+    if resp.status_code not in (200, 201, 202):
+        logger.warning(
+            "crm_klaviyo_push_failed",
+            status_code=resp.status_code,
+            tenant_id=event.tenant_id,
+        )
+        return
+
+    logger.info(
+        "crm_klaviyo_pushed",
+        event_type=event.event_type.value,
+        status_code=resp.status_code,
+        tenant_id=event.tenant_id,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Dispatch table
 # ---------------------------------------------------------------------------
 
@@ -579,6 +659,7 @@ _ADAPTERS = {
     "hubspot": _push_hubspot,
     "salesforce": _push_salesforce,
     "google_sheets": _push_google_sheets,
+    "klaviyo": _push_klaviyo,
 }
 
 

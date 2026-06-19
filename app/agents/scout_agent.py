@@ -6,6 +6,7 @@ from typing_extensions import TypedDict
 from langgraph.graph import END, StateGraph
 
 from app.core.config import settings
+from app.core.llm import groq_chat
 from app.core.logging import logger
 from app.models.brand_profile import BrandProfile
 from app.tools.google_maps import get_place_details, search_places
@@ -124,14 +125,14 @@ async def generate_queries_node(state: ScoutState) -> dict:
         f"{vertical_guidance}"
     )
 
-    client = AsyncGroq(api_key=settings.groq_api_key)
     try:
-        response = await client.chat.completions.create(
-            model=settings.groq_model,
+        response = await groq_chat(
+            AsyncGroq,
             messages=[
                 {"role": "system", "content": _QUERY_SYSTEM_PROMPT},
                 {"role": "user", "content": user_content},
             ],
+            model=settings.groq_model,
             response_format={"type": "json_object"},
             max_tokens=512,
             temperature=0.7,
