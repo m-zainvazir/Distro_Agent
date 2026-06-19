@@ -1,29 +1,31 @@
 'use client'
 
 import { useState } from 'react'
+import { VERTICALS, type VerticalWedge } from '../lib/verticals'
 
 interface HeroSectionProps {
   onSubmit: (brandUrl: string, location: string, vertical: string) => void
   isLoading: boolean
+  // When set (served on a vertical subdomain), the category is locked to the
+  // wedge's vertical and the dropdown is replaced with niche-specific copy.
+  wedge?: VerticalWedge | null
 }
 
-const VERTICALS: { value: string; label: string }[] = [
-  { value: 'aesthetic_beauty', label: 'Beauty & Cosmetics' },
-  { value: 'skincare', label: 'Skincare' },
-  { value: 'apparel', label: 'Apparel & Fashion' },
-  { value: 'footwear', label: 'Footwear' },
-  { value: 'home_goods', label: 'Home & Decor' },
-  { value: 'jewelry', label: 'Jewelry & Accessories' },
-  { value: 'food_beverage', label: 'Food & Beverage' },
-  { value: 'wellness', label: 'Wellness' },
-  { value: 'pet_products', label: 'Pet Products' },
-]
-
-export default function HeroSection({ onSubmit, isLoading }: HeroSectionProps) {
+export default function HeroSection({ onSubmit, isLoading, wedge }: HeroSectionProps) {
   const [brandUrl, setBrandUrl]   = useState('')
   const [location, setLocation]   = useState('')
   const [vertical, setVertical]   = useState(VERTICALS[0].value)
   const [urlError, setUrlError]   = useState('')
+
+  const eyebrow = wedge?.eyebrow ?? 'Wholesale Distribution · Powered by AI'
+  const subheadline =
+    wedge?.subheadline ??
+    'Paste your store link below. In 60 seconds, our AI analyzes your brand ' +
+      'aesthetic and finds the physical boutiques most likely to carry — and ' +
+      'sell — your products.'
+  const urlPlaceholder =
+    wedge?.urlPlaceholder ??
+    'https://yourbrand.myshopify.com or etsy.com/shop/yourshop'
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -32,7 +34,8 @@ export default function HeroSection({ onSubmit, isLoading }: HeroSectionProps) {
       return
     }
     setUrlError('')
-    onSubmit(brandUrl.trim(), location.trim(), vertical)
+    // On a vertical subdomain the industry tag is injected from the wedge.
+    onSubmit(brandUrl.trim(), location.trim(), wedge ? wedge.value : vertical)
   }
 
   return (
@@ -43,28 +46,35 @@ export default function HeroSection({ onSubmit, isLoading }: HeroSectionProps) {
         <div className="flex items-center justify-center gap-3 mb-10">
           <span className="block w-10 h-px bg-sage opacity-50" />
           <span className="text-sage text-xs font-medium tracking-widest uppercase">
-            Wholesale Distribution · Powered by AI
+            {eyebrow}
           </span>
           <span className="block w-10 h-px bg-sage opacity-50" />
         </div>
 
         {/* Headline */}
-        <h1
-          className="font-display text-center mb-6 leading-tight"
-          style={{ fontSize: 'clamp(36px, 5vw, 56px)', fontWeight: 400 }}
-        >
-          Drop Your Shopify URL.{' '}
-          <br className="hidden sm:block" />
-          See Which Boutiques
-          <br />
-          Will Love You.
-        </h1>
+        {wedge ? (
+          <h1
+            className="font-display text-center mb-6 leading-tight"
+            style={{ fontSize: 'clamp(36px, 5vw, 56px)', fontWeight: 400 }}
+          >
+            {wedge.headline}
+          </h1>
+        ) : (
+          <h1
+            className="font-display text-center mb-6 leading-tight"
+            style={{ fontSize: 'clamp(36px, 5vw, 56px)', fontWeight: 400 }}
+          >
+            Drop Your Shopify URL.{' '}
+            <br className="hidden sm:block" />
+            See Which Boutiques
+            <br />
+            Will Love You.
+          </h1>
+        )}
 
         {/* Subheadline */}
         <p className="text-center text-ink-muted text-lg leading-relaxed mb-10 max-w-lg mx-auto">
-          Paste your store link below. In 60 seconds, our AI analyzes your brand
-          aesthetic and finds the physical boutiques most likely to carry — and
-          sell — your products.
+          {subheadline}
         </p>
 
         {/* Form */}
@@ -75,7 +85,7 @@ export default function HeroSection({ onSubmit, isLoading }: HeroSectionProps) {
               type="text"
               value={brandUrl}
               onChange={e => { setBrandUrl(e.target.value); setUrlError('') }}
-              placeholder="https://yourbrand.myshopify.com or etsy.com/shop/yourshop"
+              placeholder={urlPlaceholder}
               disabled={isLoading}
               className="w-full px-4 text-base bg-surface border border-border rounded-sm
                          transition-all duration-150 disabled:opacity-60 disabled:cursor-not-allowed
@@ -120,20 +130,23 @@ export default function HeroSection({ onSubmit, isLoading }: HeroSectionProps) {
             }}
           />
 
-          {/* Vertical / category select */}
-          <select
-            value={vertical}
-            onChange={e => setVertical(e.target.value)}
-            disabled={isLoading}
-            aria-label="Product category"
-            className="w-full px-4 h-12 text-sm bg-surface border border-border rounded-sm
-                       transition-all duration-150 disabled:opacity-60 disabled:cursor-not-allowed
-                       focus:outline-none focus:border-sage cursor-pointer text-ink"
-          >
-            {VERTICALS.map(v => (
-              <option key={v.value} value={v.value}>{v.label}</option>
-            ))}
-          </select>
+          {/* Vertical / category select — hidden on a vertical subdomain, where
+              the category is locked to the wedge's vertical. */}
+          {!wedge && (
+            <select
+              value={vertical}
+              onChange={e => setVertical(e.target.value)}
+              disabled={isLoading}
+              aria-label="Product category"
+              className="w-full px-4 h-12 text-sm bg-surface border border-border rounded-sm
+                         transition-all duration-150 disabled:opacity-60 disabled:cursor-not-allowed
+                         focus:outline-none focus:border-sage cursor-pointer text-ink"
+            >
+              {VERTICALS.map(v => (
+                <option key={v.value} value={v.value}>{v.label}</option>
+              ))}
+            </select>
+          )}
 
           {/* Submit button */}
           <button

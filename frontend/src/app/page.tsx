@@ -1,15 +1,24 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import HeroSection from '../components/HeroSection'
 import LoadingState from '../components/LoadingState'
 import ResultsSection from '../components/ResultsSection'
 import { useDiscovery } from '../hooks/useDiscovery'
+import { resolveWedge, type VerticalWedge } from '../lib/verticals'
 
 export default function Home() {
   const { status, progress, currentStep, report, error, startDiscovery, reset } =
     useDiscovery()
   const [location, setLocation] = useState('')
+
+  // Verticalized wedge: on a niche subdomain (e.g. beauty.distroagent.ai) lock
+  // the category and show vertical-specific copy. Resolved post-mount to avoid
+  // SSR/client hydration mismatch; generic apex domain stays a full dropdown.
+  const [wedge, setWedge] = useState<VerticalWedge | null>(null)
+  useEffect(() => {
+    setWedge(resolveWedge(window.location.hostname, window.location.search))
+  }, [])
 
   function handleSubmit(brandUrl: string, loc: string, vertical: string) {
     setLocation(loc)
@@ -24,6 +33,7 @@ export default function Home() {
           <HeroSection
             onSubmit={handleSubmit}
             isLoading={false}
+            wedge={wedge}
           />
           {error && (
             <div className="max-w-content mx-auto px-4 -mt-4 pb-10">
