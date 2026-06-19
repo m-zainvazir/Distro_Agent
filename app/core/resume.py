@@ -99,7 +99,11 @@ async def resume_graph_for_email(email_id: str, approved: bool) -> None:
         )
         return
 
-    if graph_type == "negotiator":
+    if graph_type == "phase2":
+        from app.workflows.phase2_workflow import build_phase2_graph
+
+        graph = build_phase2_graph(checkpointer=checkpointer)
+    elif graph_type == "negotiator":
         from app.agents.negotiator_agent import build_negotiator_graph
 
         graph = build_negotiator_graph(checkpointer=checkpointer)

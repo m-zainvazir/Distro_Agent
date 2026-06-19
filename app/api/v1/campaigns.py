@@ -1,12 +1,15 @@
 """Campaign endpoints — start outreach runs and handle HITL approve/reject."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
 
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.database import get_db
 from app.core.dependencies import get_current_tenant
 from app.core.logging import logger
-from app.models.campaign import Tenant
+from app.models.campaign import OutreachCampaign, Tenant
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
 
@@ -15,6 +18,17 @@ class StartCampaignRequest(BaseModel):
     brand_profile_id: str
     store_ids: list[str]
     email_tone: str = "warm"
+    founder_name: str | None = None
+    vertical_tag: str | None = None
+    # Optional per-store buyer addresses (store_id -> email). Used at dispatch,
+    # which only happens after the founder approves the drafted email.
+    buyer_emails: dict[str, str] = {}
+
+
+class StartCampaignResponse(BaseModel):
+    status: str
+    campaign_id: str
+    stores_launched: int
 
 
 class ApprovalRequest(BaseModel):
@@ -68,18 +82,79 @@ async def simulate_reply(
     }
 
 
-@router.post("/start", status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/start",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=StartCampaignResponse,
+)
 async def start_campaign(
     body: StartCampaignRequest,
+    background_tasks: BackgroundTasks,
     tenant: Tenant = Depends(get_current_tenant),
-) -> dict:
+    db: AsyncSession = Depends(get_db),
+) -> StartCampaignResponse:
+    """Launch the Phase 2 outreach workflow for the selected stores.
+
+    Loads the brand profile + stores (tenant-scoped), creates an OutreachCampaign,
+    then runs the Phase 2 graph per store in the background up to the copywriter
+    HITL pause. The founder approves each draft via /campaigns/{email_id}/approve.
+    """
+    from app.services.campaign_launch import (
+        load_campaign_inputs,
+        record_to_brand_profile,
+        record_to_scored_store,
+        run_phase2_for_store,
+    )
+
     logger.info(
         "campaign_start_requested",
         tenant_id=str(tenant.id),
         brand_profile_id=body.brand_profile_id,
         store_count=len(body.store_ids),
     )
-    return {"status": "accepted", "message": "Campaign queued"}
+
+    try:
+        brand_rec, stores = await load_campaign_inputs(
+            db, str(tenant.id), body.brand_profile_id, body.store_ids
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:  # malformed UUID in path
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    campaign = OutreachCampaign(
+        tenant_id=tenant.id,
+        brand_profile_id=brand_rec.id,
+        status="active",
+        vertical_tag=body.vertical_tag,
+    )
+    db.add(campaign)
+    await db.commit()
+    await db.refresh(campaign)
+
+    brand_profile = record_to_brand_profile(brand_rec)
+    founder_name = body.founder_name or tenant.name
+
+    for store in stores:
+        store_id = str(store.id)
+        background_tasks.add_task(
+            run_phase2_for_store,
+            tenant_id=str(tenant.id),
+            campaign_id=str(campaign.id),
+            brand_profile=brand_profile,
+            scored_store=record_to_scored_store(store),
+            store_db_id=store_id,
+            buyer_email=body.buyer_emails.get(store_id, ""),
+            buyer_name=store.name,
+            founder_name=founder_name,
+            email_tone=body.email_tone,
+        )
+
+    return StartCampaignResponse(
+        status="accepted",
+        campaign_id=str(campaign.id),
+        stores_launched=len(stores),
+    )
 
 
 @router.post("/{email_id}/approve", status_code=status.HTTP_200_OK)
