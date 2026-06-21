@@ -16,6 +16,7 @@ from langgraph.graph import END, StateGraph
 
 from app.agents.hitl_gate import ROUTINE_OUTREACH, request_human_approval
 from app.core.config import settings
+from app.core.llm import groq_chat
 from app.core.logging import logger
 from app.models.brand_profile import BrandProfile
 from app.models.outreach import OutreachEmailDraft
@@ -96,16 +97,16 @@ async def draft_node(state: CopywriterState) -> dict:
         f"{revision_note}"
     )
 
-    client = AsyncGroq(api_key=settings.groq_api_key)
     last_exc: Exception | None = None
     for attempt in range(3):
         try:
-            resp = await client.chat.completions.create(
-                model=settings.groq_model,
+            resp = await groq_chat(
+                AsyncGroq,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
+                model=settings.groq_model,
                 response_format={"type": "json_object"},
                 max_tokens=800,
             )
@@ -328,6 +329,7 @@ async def _persist_pending_email(state: CopywriterState) -> uuid.UUID:
                 id=email_id,
                 campaign_id=uuid.UUID(state["campaign_id"]),
                 store_id=uuid.UUID(state["store_db_id"]),
+                tenant_id=uuid.UUID(state["tenant_id"]),
                 subject=state["draft_subject_a"],
                 body=state["draft_body"],
                 outcome="pending_approval",

@@ -6,6 +6,7 @@ from typing_extensions import TypedDict
 from langgraph.graph import END, StateGraph
 
 from app.core.config import settings
+from app.core.llm import groq_chat
 from app.core.logging import logger
 from app.models.brand_profile import BrandProfile
 from app.tools.google_maps import get_place_details, search_places
@@ -109,6 +110,10 @@ async def generate_queries_node(state: ScoutState) -> dict:
     vertical_tag: str = state["vertical_tag"]
     target_location: str = state["target_location"]
 
+    # Context Router: inject vertical-specific store-type guidance.
+    from app.core.context_router import resolve_vertical
+
+    vertical_guidance = resolve_vertical(vertical_tag).scouting_prompt_addendum()
     user_content = (
         f"Brand: {brand_profile.brand_name}\n"
         f"Vertical: {vertical_tag}\n"
@@ -117,16 +122,17 @@ async def generate_queries_node(state: ScoutState) -> dict:
         f"Target location: {target_location}\n\n"
         "Generate 5-8 search queries to find indie retail boutiques in this location "
         "that would be a great fit to carry this brand's products."
+        f"{vertical_guidance}"
     )
 
-    client = AsyncGroq(api_key=settings.groq_api_key)
     try:
-        response = await client.chat.completions.create(
-            model=settings.groq_model,
+        response = await groq_chat(
+            AsyncGroq,
             messages=[
                 {"role": "system", "content": _QUERY_SYSTEM_PROMPT},
                 {"role": "user", "content": user_content},
             ],
+            model=settings.groq_model,
             response_format={"type": "json_object"},
             max_tokens=512,
             temperature=0.7,

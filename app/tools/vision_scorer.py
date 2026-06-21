@@ -3,6 +3,7 @@ import json
 from groq import AsyncGroq
 
 from app.core.config import settings
+from app.core.llm import groq_chat
 from app.core.logging import logger
 from app.models.brand_profile import BrandProfile
 from app.models.store_candidate import DimensionScore, StoreCandidate
@@ -55,14 +56,14 @@ async def score_visual_vibe(store: StoreCandidate, brand: BrandProfile) -> Dimen
         "Assess the aesthetic vibe match and respond with JSON only."
     )
 
-    client = AsyncGroq(api_key=settings.groq_api_key)
     try:
-        response = await client.chat.completions.create(
-            model=settings.groq_model,
+        response = await groq_chat(
+            AsyncGroq,
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
             ],
+            model=settings.groq_model,
             response_format={"type": "json_object"},
             temperature=0.3,
             max_tokens=300,

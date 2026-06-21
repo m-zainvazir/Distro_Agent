@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import json
 import sys
+import uuid
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+import app.models.user  # noqa: F401 — registers User mapper for Tenant.users relationship
 from app.agents.copywriter_agent import (
     build_copywriter_graph,
     critique_node,
@@ -377,3 +379,46 @@ async def test_get_checkpointer_falls_back_to_memory_saver_when_libpq_missing() 
         result = await get_checkpointer()
 
     assert isinstance(result, MemorySaver)
+
+
+# ---------------------------------------------------------------------------
+# _persist_pending_email — multi-tenant tenant_id is always set (NOT NULL column)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_persist_pending_email_sets_tenant_id(monkeypatch: Any) -> None:
+    from app.agents.copywriter_agent import _persist_pending_email
+
+    captured: dict = {}
+
+    class _Sess:
+        async def __aenter__(self) -> "_Sess":
+            return self
+
+        async def __aexit__(self, *_a: Any) -> bool:
+            return False
+
+        def add(self, rec: Any) -> None:
+            captured["rec"] = rec
+
+        async def commit(self) -> None:
+            return None
+
+    monkeypatch.setattr("app.core.database.AsyncSessionLocal", lambda: _Sess())
+
+    tid, cid, sid = str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
+    state = {
+        **_initial_state(),
+        "tenant_id": tid,
+        "campaign_id": cid,
+        "store_db_id": sid,
+        "draft_subject_a": "Subject",
+        "draft_body": "Body",
+    }
+
+    await _persist_pending_email(state)  # type: ignore[arg-type]
+
+    assert "rec" in captured  # DB path was taken (campaign_id + store_db_id set)
+    assert str(captured["rec"].tenant_id) == tid
+    assert str(captured["rec"].campaign_id) == cid

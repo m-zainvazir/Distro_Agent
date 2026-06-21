@@ -18,7 +18,9 @@ or via future instrumentation.
 """
 from __future__ import annotations
 
+import asyncio
 import math
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -92,18 +94,22 @@ def pearson_correlation(xs: list[float], ys: list[float]) -> float:
     return num / (den_x * den_y)
 
 
+def _proposed_visual_weight(old_visual: float, correlation: float) -> float:
+    """Return the visual weight the nudge rule would move to (no change → same value)."""
+    if correlation > 0.30:
+        return min(old_visual + _WEIGHT_NUDGE, _VISUAL_MAX)
+    if correlation < 0.05:
+        return max(old_visual - _WEIGHT_NUDGE, _VISUAL_MIN)
+    return old_visual
+
+
 def _nudge_and_renormalize(
     row: ScoringWeights,
     correlation: float,
 ) -> bool:
     """Apply weight nudge in-place. Returns True if any weight changed."""
     old_visual = row.visual_weight
-    new_visual = old_visual
-
-    if correlation > 0.30:
-        new_visual = min(old_visual + _WEIGHT_NUDGE, _VISUAL_MAX)
-    elif correlation < 0.05:
-        new_visual = max(old_visual - _WEIGHT_NUDGE, _VISUAL_MIN)
+    new_visual = _proposed_visual_weight(old_visual, correlation)
 
     if new_visual == old_visual:
         return False
@@ -145,11 +151,19 @@ async def calibrate_weights(
     vertical_tag: str,
     db: AsyncSession,
     lookback_days: int = _LOOKBACK_DAYS,
+    gate: Callable[[str, dict[str, Any]], bool] | None = None,
 ) -> dict[str, Any]:
     """Analyse recent outcomes, update weights for *vertical_tag*, return report dict.
 
     The DB row is only updated when ``sample_size >= _MIN_SAMPLE`` to avoid
     thrashing weights on too little data.
+
+    ``gate`` is an optional synchronous admin-approval callback
+    ``(action_type, payload) -> bool``. When a weight change is actually
+    proposed it is gated through ``gate`` (run in a worker thread so the blocking
+    Redis wait never stalls the event loop); a falsey return leaves the existing
+    weights untouched. When ``gate`` is None weights update autonomously (the
+    pre-gate behaviour, used by the unit tests).
     """
     cutoff = datetime.now(timezone.utc) - timedelta(days=lookback_days)
 
@@ -248,9 +262,39 @@ async def calibrate_weights(
 
     old_visual = weights_row.visual_weight
     weights_updated = False
+    weights_gate_rejected = False
 
     if sample_size >= _MIN_SAMPLE:
-        weights_updated = _nudge_and_renormalize(weights_row, correlation)
+        proposed_visual = _proposed_visual_weight(old_visual, correlation)
+        change_proposed = proposed_visual != old_visual
+
+        approved = True
+        if change_proposed and gate is not None:
+            # require_admin_approval blocks on Redis pub/sub — run it off the loop.
+            approved = await asyncio.to_thread(
+                gate,
+                "update_scoring_weights",
+                {
+                    "vertical": vertical_tag,
+                    "old_visual_weight": round(old_visual, 4),
+                    "new_visual_weight": round(proposed_visual, 4),
+                    "correlation": round(correlation, 3),
+                    "sample_size": sample_size,
+                },
+            )
+
+        if change_proposed and approved:
+            weights_updated = _nudge_and_renormalize(weights_row, correlation)
+        elif change_proposed and not approved:
+            weights_gate_rejected = True
+            logger.info(
+                "calibration_weight_update_rejected",
+                vertical=vertical_tag,
+                old_visual_weight=round(old_visual, 4),
+                proposed_visual_weight=round(proposed_visual, 4),
+            )
+
+        # Refresh calibration metadata regardless of the weight decision.
         weights_row.calibrated_at = datetime.now(timezone.utc)
         weights_row.sample_size = sample_size
         await db.commit()
@@ -271,6 +315,7 @@ async def calibrate_weights(
         sample_size=sample_size,
         correlation=round(correlation, 3),
         weights_updated=weights_updated,
+        weights_gate_rejected=weights_gate_rejected,
         new_visual_weight=weights_row.visual_weight,
     )
 
@@ -286,6 +331,7 @@ async def calibrate_weights(
         "visual_correlation": round(correlation, 3),
         "bucket_win_rates": bucket_win_rates,
         "weights_updated": weights_updated,
+        "weights_gate_rejected": weights_gate_rejected,
         "old_visual_weight": old_visual,
         "new_visual_weight": weights_row.visual_weight,
         "current_weights": {

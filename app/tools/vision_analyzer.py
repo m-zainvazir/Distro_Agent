@@ -7,6 +7,7 @@ from groq import AsyncGroq
 
 from app.core.budget import LeadBudget
 from app.core.config import settings
+from app.core.llm import groq_chat
 from app.core.logging import logger
 
 _MAX_ATTEMPTS = 3
@@ -47,8 +48,6 @@ async def analyze_brand_aesthetics(
     If *budget* is supplied, actual token usage is recorded to the lead ledger
     after each successful call via ``budget.record_usage``.
     """
-    client = AsyncGroq(api_key=settings.groq_api_key)
-
     product_summary = "\n".join(
         f"- {p.get('title', '')} | price: {p.get('price', p.get('variants', [{}])[0].get('price', 'N/A') if p.get('variants') else 'N/A')}"
         for p in products
@@ -56,22 +55,28 @@ async def analyze_brand_aesthetics(
     name_instruction = (
         f"\n\n{_NAME_CONSTRAINT.format(name=canonical_name)}" if canonical_name else ""
     )
+    # Context Router: inject niche-aware extraction guidance for this vertical.
+    from app.core.context_router import resolve_vertical
+
+    vertical_guidance = resolve_vertical(vertical_tag).extraction_prompt_addendum()
     user_content = (
         f"Vertical: {vertical_tag}\n\n"
         f"About text:\n{about_text[:2000]}\n\n"
         f"Product catalog sample:\n{product_summary}"
         f"{name_instruction}"
+        f"{vertical_guidance}"
     )
 
     last_exc: Exception | None = None
     for attempt in range(_MAX_ATTEMPTS):
         try:
-            response = await client.chat.completions.create(
-                model=settings.groq_model,
+            response = await groq_chat(
+                AsyncGroq,
                 messages=[
                     {"role": "system", "content": _SYSTEM_PROMPT},
                     {"role": "user", "content": user_content},
                 ],
+                model=settings.groq_model,
                 response_format={"type": "json_object"},
                 max_tokens=1024,
             )

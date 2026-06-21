@@ -8,6 +8,7 @@ from typing_extensions import TypedDict
 from langgraph.graph import END, StateGraph
 
 from app.core.config import settings
+from app.core.llm import groq_chat
 from app.core.logging import logger
 from app.models.brand_profile import BrandProfile
 from app.models.store_candidate import (
@@ -241,7 +242,6 @@ Respond with ONLY valid JSON: {"match_summary": "...", "why_matched": "..."}
 
 async def compute_final_scores_node(state: AnalystState) -> dict:
     brand: BrandProfile = state["brand_profile"]
-    client = AsyncGroq(api_key=settings.groq_api_key)
     finalized: list[ScoredStore] = []
     token_usage: dict[str, int] = dict(state.get("total_token_usage", {"input": 0, "output": 0}))
     cost = float(state.get("total_cost_usd", 0.0))
@@ -295,12 +295,13 @@ async def compute_final_scores_node(state: AnalystState) -> dict:
             continue
 
         try:
-            response = await client.chat.completions.create(
-                model=settings.groq_model,
+            response = await groq_chat(
+                AsyncGroq,
                 messages=[
                     {"role": "system", "content": _SUMMARY_SYSTEM},
                     {"role": "user", "content": prompt},
                 ],
+                model=settings.groq_model,
                 response_format={"type": "json_object"},
                 temperature=0.4,
                 max_tokens=200,

@@ -317,6 +317,80 @@ class TestCalibrateWeights:
 
 
 # ---------------------------------------------------------------------------
+# calibrate_weights — admin-approval gate
+# ---------------------------------------------------------------------------
+
+
+class TestCalibrateWeightsGate:
+    def _high_corr_pairs(self) -> list[tuple[MagicMock, MagicMock]]:
+        # 12 decided outcomes, high vibe → win: proposes a visual-weight increase.
+        return (
+            [(_make_email(outcome="converted"), _make_store(vibe_score=9.0))] * 7
+            + [(_make_email(outcome="ignored"), _make_store(vibe_score=1.0))] * 5
+        )
+
+    @pytest.mark.asyncio
+    async def test_gate_rejection_blocks_weight_update(self) -> None:
+        row = _make_weights_row()
+        db = _mock_db_with_rows(self._high_corr_pairs(), existing_weights_row=row)
+
+        report = await calibrate_weights("all", db, gate=lambda _a, _p: False)
+
+        assert report["weights_updated"] is False
+        assert report["weights_gate_rejected"] is True
+        assert report["new_visual_weight"] == report["old_visual_weight"]
+        assert row.visual_weight == 0.35  # untouched
+        db.commit.assert_called_once()  # calibration metadata still refreshed
+
+    @pytest.mark.asyncio
+    async def test_gate_approval_allows_weight_update(self) -> None:
+        row = _make_weights_row()
+        db = _mock_db_with_rows(self._high_corr_pairs(), existing_weights_row=row)
+
+        report = await calibrate_weights("all", db, gate=lambda _a, _p: True)
+
+        assert report["weights_updated"] is True
+        assert report["weights_gate_rejected"] is False
+        assert report["new_visual_weight"] > report["old_visual_weight"]
+        db.commit.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_gate_not_called_when_no_change_proposed(self) -> None:
+        # Already at the cap: high correlation can't nudge further → no change,
+        # so the gate must not be consulted.
+        row = _make_weights_row(visual=_VISUAL_MAX, category=0.25,
+                                price=0.20, engagement=0.10, wholesale=0.10)
+        db = _mock_db_with_rows(self._high_corr_pairs(), existing_weights_row=row)
+        calls: list[tuple] = []
+
+        report = await calibrate_weights(
+            "all", db, gate=lambda a, p: calls.append((a, p)) or True
+        )
+
+        assert calls == []
+        assert report["weights_updated"] is False
+        assert report["weights_gate_rejected"] is False
+
+    @pytest.mark.asyncio
+    async def test_gate_payload_describes_proposed_change(self) -> None:
+        row = _make_weights_row()
+        db = _mock_db_with_rows(self._high_corr_pairs(), existing_weights_row=row)
+        captured: dict = {}
+
+        def _gate(action_type: str, payload: dict) -> bool:
+            captured["action_type"] = action_type
+            captured["payload"] = payload
+            return True
+
+        await calibrate_weights("all", db, gate=_gate)
+
+        assert captured["action_type"] == "update_scoring_weights"
+        assert captured["payload"]["vertical"] == "all"
+        assert captured["payload"]["old_visual_weight"] == 0.35
+        assert captured["payload"]["new_visual_weight"] > 0.35
+
+
+# ---------------------------------------------------------------------------
 # _format_report
 # ---------------------------------------------------------------------------
 
@@ -360,6 +434,11 @@ class TestFormatReport:
     def test_shows_unchanged_message_when_not_updated(self) -> None:
         msg = _format_report([self._sample_report(updated=False)])
         assert "Weights unchanged" in msg
+
+    def test_shows_rejected_message_when_gate_rejected(self) -> None:
+        report = {**self._sample_report(updated=False), "weights_gate_rejected": True}
+        msg = _format_report([report])
+        assert "REJECTED by admin" in msg
 
     def test_multiple_verticals_all_present(self) -> None:
         reports = [self._sample_report(), {**self._sample_report(), "vertical_tag": "footwear"}]

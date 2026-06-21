@@ -6,6 +6,11 @@ class Settings(BaseSettings):
 
     groq_api_key: str
     groq_model: str = "llama-3.3-70b-versatile"
+    # Multi-provider LLM failover (Blueprint Layer 18). When a fallback key or
+    # model is set, LLM calls fail over to it on rate-limit / 5xx / connection
+    # errors. Empty (default) → single-provider behaviour, no failover.
+    groq_api_key_fallback: str = ""
+    groq_model_fallback: str = ""
     etsy_api_key: str = ""
     database_url: str = "postgresql+asyncpg://localhost/distroagent"
     redis_url: str = "redis://localhost:6379"
@@ -36,6 +41,12 @@ class Settings(BaseSettings):
     # Stripe
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""
+    # Shared secret for cron-triggered endpoints (e.g. POST /retention/run).
+    # Must be set to enable them; an external scheduler sends it as X-Cron-Token.
+    cron_token: str = ""
+    # In-process retention sweep scheduler: run the retention sweep every N hours
+    # inside the live web service. 0 (default) = disabled (use the cron endpoint).
+    retention_sweep_interval_hours: int = 0
     # Per-lead token/cost budget (Blueprint Layers 14 & 16)
     max_tokens_per_lead: int = 4000
     max_cost_per_lead_usd: float = 0.05

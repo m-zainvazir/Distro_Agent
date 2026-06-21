@@ -33,6 +33,11 @@ def _format_report(reports: list[dict[str, Any]]) -> str:
                 f"Visual weight updated: "
                 f"{r['old_visual_weight']} -> {r['new_visual_weight']}"
             )
+        elif r.get("weights_gate_rejected"):
+            lines.append(
+                f"Visual weight update REJECTED by admin "
+                f"(kept {r['old_visual_weight']})"
+            )
         else:
             lines.append(
                 f"Weights unchanged "
@@ -48,9 +53,17 @@ async def _run_calibration() -> dict[str, Any]:
 
     from app.core.config import settings
     from app.core.database import AsyncSessionLocal
+    from app.core.governance import _admin_phone, require_admin_approval
     from app.models.campaign import OutreachCampaign
     from app.services.calibration_service import calibrate_weights
     from app.services.whatsapp_service import send_deal_alert
+
+    # The weight-update gate is unbypassable only when an admin can actually
+    # approve it. With no admin phone configured the governance wait would block
+    # for the full timeout and never resolve, so calibration stays autonomous.
+    gate = require_admin_approval if _admin_phone() else None
+    if gate is None:
+        logger.warning("calibration_gate_disabled_no_admin_phone")
 
     async with AsyncSessionLocal() as db:
         # Discover all distinct verticals with active campaigns
@@ -65,7 +78,9 @@ async def _run_calibration() -> dict[str, Any]:
         reports: list[dict[str, Any]] = []
         for vertical in verticals:
             try:
-                report = await calibrate_weights(vertical_tag=vertical, db=db)
+                report = await calibrate_weights(
+                    vertical_tag=vertical, db=db, gate=gate
+                )
                 reports.append(report)
             except Exception as exc:
                 logger.error(

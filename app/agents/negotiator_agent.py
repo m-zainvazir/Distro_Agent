@@ -29,6 +29,7 @@ from langgraph.graph import END, StateGraph
 
 from app.agents.hitl_gate import DEAL, request_human_approval
 from app.core.config import settings
+from app.core.llm import groq_chat
 from app.core.logging import logger
 from app.models.rulebook import WholesaleRulebook
 
@@ -304,16 +305,16 @@ async def draft_counter_node(state: NegotiatorState) -> dict:
         "Draft a counter-offer that addresses this within our wholesale terms."
     )
 
-    client = AsyncGroq(api_key=settings.groq_api_key)
     last_exc: Exception | None = None
     for attempt in range(3):
         try:
-            resp = await client.chat.completions.create(
-                model=settings.groq_model,
+            resp = await groq_chat(
+                AsyncGroq,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
+                model=settings.groq_model,
                 max_tokens=400,
             )
             counter = resp.choices[0].message.content or ""
