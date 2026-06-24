@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     whatsapp_app_secret: str = ""
     whatsapp_verify_token: str = ""
     whatsapp_founder_phone: str = ""
+    # Approved WhatsApp message template for HITL approval cards. When set, the
+    # approval card is sent as this template (deliverable outside the 24h window);
+    # when empty, the legacy interactive message is used (24h window only).
+    whatsapp_approval_template: str = ""
+    whatsapp_approval_template_lang: str = "en_US"
     sendgrid_api_key: str = ""
     gmail_oauth_client_id: str = ""
     gmail_oauth_client_secret: str = ""

@@ -150,6 +150,7 @@ async def propose_slots_node(state: SchedulingState) -> dict:
             phone=settings.whatsapp_founder_phone,
             email_preview=proposal_body[:300],
             email_id=proposal_id,
+            store_name=state["store_name"],
         )
     except Exception as exc:
         logger.warning("scheduling_whatsapp_failed", error=str(exc))

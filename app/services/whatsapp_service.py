@@ -39,6 +39,114 @@ def _auth_headers() -> dict[str, str]:
     }
 
 
+def _sanitize_template_param(text: str, *, max_len: int = 300) -> str:
+    """Collapse whitespace and truncate text for use as a template parameter.
+
+    WhatsApp rejects template body parameters that contain newlines, tabs, or
+    runs of more than four spaces, so any draft preview must be flattened to a
+    single line before it can be injected into ``{{1}}`` / ``{{2}}``.
+
+    Args:
+        text: Raw parameter text (e.g. an email body preview).
+        max_len: Maximum length to keep; longer text is truncated with an ellipsis.
+
+    Returns:
+        A single-line, length-bounded string safe to send as a template param.
+    """
+    flattened = " ".join(text.split())
+    if len(flattened) > max_len:
+        flattened = flattened[: max_len - 1].rstrip() + "…"
+    return flattened
+
+
+def _approval_interactive_payload(
+    phone: str,
+    email_preview: str,
+    email_id: str,
+) -> dict[str, Any]:
+    """Build the legacy interactive (24h-window) approval message payload."""
+    return {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": phone,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {
+                "text": (
+                    f"Outreach email ready for review:\n\n{email_preview}\n\n"
+                    "Tap a button to respond:"
+                )
+            },
+            "action": {
+                "buttons": [
+                    {
+                        "type": "reply",
+                        "reply": {
+                            "id": f"approve:{email_id}",
+                            "title": "✅ Approve",
+                        },
+                    },
+                    {
+                        "type": "reply",
+                        "reply": {
+                            "id": f"reject:{email_id}",
+                            "title": "✏️ Reject",
+                        },
+                    },
+                ]
+            },
+        },
+    }
+
+
+def _approval_template_payload(
+    phone: str,
+    email_preview: str,
+    email_id: str,
+    store_name: str,
+) -> dict[str, Any]:
+    """Build the approved-template approval payload (deliverable anytime).
+
+    Body variables map to the approved template:
+        {{1}} -> store_name
+        {{2}} -> email_preview
+    Each quick-reply button carries the dynamic routing payload the webhook
+    handler expects (``approve:<email_id>`` / ``reject:<email_id>``).
+    """
+    return {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": phone,
+        "type": "template",
+        "template": {
+            "name": settings.whatsapp_approval_template,
+            "language": {"code": settings.whatsapp_approval_template_lang},
+            "components": [
+                {
+                    "type": "body",
+                    "parameters": [
+                        {"type": "text", "text": _sanitize_template_param(store_name, max_len=60)},
+                        {"type": "text", "text": _sanitize_template_param(email_preview)},
+                    ],
+                },
+                {
+                    "type": "button",
+                    "sub_type": "quick_reply",
+                    "index": "0",
+                    "parameters": [{"type": "payload", "payload": f"approve:{email_id}"}],
+                },
+                {
+                    "type": "button",
+                    "sub_type": "quick_reply",
+                    "index": "1",
+                    "parameters": [{"type": "payload", "payload": f"reject:{email_id}"}],
+                },
+            ],
+        },
+    }
+
+
 async def _post_with_retry(
     client: httpx.AsyncClient,
     url: str,
@@ -84,10 +192,15 @@ async def send_approval_card(
     phone: str,
     email_preview: str,
     email_id: str,
+    store_name: str = "",
 ) -> None:
-    """Send an interactive WhatsApp message with Approve / Reject buttons.
+    """Send a WhatsApp approval card with Approve / Reject buttons.
 
-    The button reply payloads encode the email_id so the webhook handler can
+    Uses the approved message template when ``settings.whatsapp_approval_template``
+    is configured (deliverable any time), otherwise falls back to a legacy
+    interactive message (only deliverable inside the 24h customer-service window).
+
+    Either way the button payloads encode the email_id so the webhook handler can
     route the tap back to the correct paused graph:
 
         approve:<email_id>
@@ -97,40 +210,17 @@ async def send_approval_card(
         phone: E.164 recipient phone number (e.g. "15551234567").
         email_preview: Short preview text shown in the message body.
         email_id: Unique identifier for the pending outreach email.
+        store_name: Prospect store name shown in the template (``{{1}}``).
     """
-    payload: dict[str, Any] = {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": phone,
-        "type": "interactive",
-        "interactive": {
-            "type": "button",
-            "body": {
-                "text": (
-                    f"Outreach email ready for review:\n\n{email_preview}\n\n"
-                    "Tap a button to respond:"
-                )
-            },
-            "action": {
-                "buttons": [
-                    {
-                        "type": "reply",
-                        "reply": {
-                            "id": f"approve:{email_id}",
-                            "title": "✅ Approve",
-                        },
-                    },
-                    {
-                        "type": "reply",
-                        "reply": {
-                            "id": f"reject:{email_id}",
-                            "title": "✏️ Reject",
-                        },
-                    },
-                ]
-            },
-        },
-    }
+    if settings.whatsapp_approval_template:
+        payload: dict[str, Any] = _approval_template_payload(
+            phone=phone,
+            email_preview=email_preview,
+            email_id=email_id,
+            store_name=store_name or "your prospect",
+        )
+    else:
+        payload = _approval_interactive_payload(phone, email_preview, email_id)
 
     async with httpx.AsyncClient(timeout=10.0) as client:
         try:
@@ -233,16 +323,22 @@ async def process_incoming_message(payload: dict[str, Any]) -> None:
         for message in messages:
             msg_type: str = message.get("type", "")
 
-            if msg_type != "interactive":
+            # Interactive button replies (legacy 24h-window cards) carry the
+            # routing id under interactive.button_reply.id; template quick-reply
+            # taps arrive as type "button" with the payload under button.payload.
+            if msg_type == "interactive":
+                interactive: dict[str, Any] = message.get("interactive", {})
+                button_reply: dict[str, Any] = interactive.get("button_reply", {})
+                button_id: str = button_reply.get("id", "")
+            elif msg_type == "button":
+                button: dict[str, Any] = message.get("button", {})
+                button_id = button.get("payload", "")
+            else:
                 logger.info(
                     "whatsapp_non_interactive_message_ignored",
                     msg_type=msg_type,
                 )
                 continue
-
-            interactive: dict[str, Any] = message.get("interactive", {})
-            button_reply: dict[str, Any] = interactive.get("button_reply", {})
-            button_id: str = button_reply.get("id", "")
 
             if button_id.startswith("approve:"):
                 email_id = button_id[len("approve:"):]

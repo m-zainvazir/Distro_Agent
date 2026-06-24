@@ -252,6 +252,7 @@ async def hitl_approval_node(state: CopywriterState) -> dict:
             phone=settings.whatsapp_founder_phone,
             email_preview=state["draft_body"][:300],
             email_id=str(email_id),
+            store_name=state["store"].store.name,
         )
     except Exception as exc:
         logger.warning("whatsapp_send_failed", error=str(exc))
