@@ -117,6 +117,41 @@ async def test_start_campaign_launches_phase2(monkeypatch: pytest.MonkeyPatch) -
 
 
 @pytest.mark.asyncio
+async def test_seed_demo_creates_brand_and_store_for_tenant() -> None:
+    tenant = Tenant(id=uuid.uuid4(), name="Acme")
+
+    db = AsyncMock()
+    db.add = MagicMock()
+    db.commit = AsyncMock()
+
+    async def _refresh(obj: Any) -> None:
+        # Assign a fresh id per row so brand and store get distinct ids.
+        obj.id = uuid.uuid4()
+
+    db.refresh = AsyncMock(side_effect=_refresh)
+
+    async def _override_db() -> AsyncGenerator[AsyncMock, None]:
+        yield db
+
+    _test_app.dependency_overrides[get_db] = _override_db
+    _test_app.dependency_overrides[get_current_tenant] = lambda: tenant
+    async with AsyncClient(transport=ASGITransport(app=_test_app), base_url="http://test") as client:
+        resp = await client.post("/api/v1/campaigns/seed-demo")
+    _test_app.dependency_overrides.clear()
+
+    assert resp.status_code == 201
+    payload = resp.json()
+    assert payload["brand_profile_id"]
+    assert len(payload["store_ids"]) == 1
+    assert payload["store_ids"][0] != payload["brand_profile_id"]
+    # One brand row + one store row added, then committed.
+    assert db.add.call_count == 2
+    db.commit.assert_awaited()
+    added = {type(c.args[0]).__name__ for c in db.add.call_args_list}
+    assert added == {"BrandProfileRecord", "StoreCandidate"}
+
+
+@pytest.mark.asyncio
 async def test_start_campaign_brand_not_found_returns_404(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

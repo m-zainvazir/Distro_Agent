@@ -9,9 +9,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.dependencies import get_current_tenant
 from app.core.logging import logger
-from app.models.campaign import OutreachCampaign, Tenant
+from app.models.campaign import (
+    BrandProfileRecord,
+    OutreachCampaign,
+    StoreCandidate,
+    Tenant,
+)
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
+
+
+class SeedDemoResponse(BaseModel):
+    brand_profile_id: str
+    store_ids: list[str]
 
 
 class StartCampaignRequest(BaseModel):
@@ -80,6 +90,57 @@ async def simulate_reply(
         "notes": result.get("notes"),
         "pending_approval_ids": pending_ids,
     }
+
+
+@router.post(
+    "/seed-demo",
+    status_code=status.HTTP_201_CREATED,
+    response_model=SeedDemoResponse,
+)
+async def seed_demo(
+    tenant: Tenant = Depends(get_current_tenant),
+    db: AsyncSession = Depends(get_db),
+) -> SeedDemoResponse:
+    """Seed one brand profile + one store for the caller's tenant.
+
+    Lets the full Phase 2 / WhatsApp HITL loop be exercised end-to-end without a
+    discovery run: the returned ids feed straight into ``POST /campaigns/start``.
+    Strictly tenant-scoped — only ever creates rows for the authenticated tenant.
+    """
+    brand = BrandProfileRecord(
+        tenant_id=tenant.id,
+        brand_url="https://demo.distroagent.example",
+        brand_name="DistroAgent Demo Brand",
+        aesthetic_keywords=["clean", "minimal", "modern"],
+        price_range_min=25.0,
+        price_range_max=150.0,
+        embedding_vector=[0.1] * 8,
+    )
+    store = StoreCandidate(
+        tenant_id=tenant.id,
+        name="Demo Boutique",
+        address="123 Demo Street",
+        instagram_handle="demoboutique",
+        vibe_score=8.5,
+        lead_score=8.5,
+        status="new",
+    )
+    db.add(brand)
+    db.add(store)
+    await db.commit()
+    await db.refresh(brand)
+    await db.refresh(store)
+
+    logger.info(
+        "campaign_seed_demo",
+        tenant_id=str(tenant.id),
+        brand_profile_id=str(brand.id),
+        store_id=str(store.id),
+    )
+    return SeedDemoResponse(
+        brand_profile_id=str(brand.id),
+        store_ids=[str(store.id)],
+    )
 
 
 @router.post(
