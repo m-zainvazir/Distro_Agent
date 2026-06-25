@@ -353,26 +353,58 @@ async def test_full_graph_reject_loops_to_draft() -> None:
 
 @pytest.mark.asyncio
 async def test_get_checkpointer_tries_postgres_first() -> None:
+    import app.core.checkpointer as cp_mod
     from app.core.checkpointer import get_checkpointer
 
-    mock_saver = MagicMock(spec=object)  # spec=object means no __aenter__, so not treated as a CM
-    mock_saver_cls = MagicMock()
-    mock_saver_cls.from_conn_string.return_value = mock_saver
+    # Start from a clean singleton state.
+    cp_mod._pg_saver = None
+    cp_mod._pg_pool = None
+    cp_mod._memory_saver = None
 
-    mock_module = MagicMock()
-    mock_module.AsyncPostgresSaver = mock_saver_cls
+    # Mock the Postgres saver built from a pooled connection.
+    mock_saver = MagicMock()
+    mock_saver.setup = AsyncMock()
+    mock_saver_cls = MagicMock(return_value=mock_saver)
+    mock_pg_module = MagicMock()
+    mock_pg_module.AsyncPostgresSaver = mock_saver_cls
 
-    with patch.dict(sys.modules, {"langgraph.checkpoint.postgres.aio": mock_module}):
-        result = await get_checkpointer()
+    mock_pool = MagicMock()
+    mock_pool.open = AsyncMock()
+    mock_pool_cls = MagicMock(return_value=mock_pool)
+    mock_pool_module = MagicMock()
+    mock_pool_module.AsyncConnectionPool = mock_pool_cls
 
-    mock_saver_cls.from_conn_string.assert_called_once()
-    assert result is mock_saver
+    try:
+        with patch.dict(
+            sys.modules,
+            {
+                "langgraph.checkpoint.postgres.aio": mock_pg_module,
+                "psycopg_pool": mock_pool_module,
+            },
+        ):
+            result = await get_checkpointer()
+
+        mock_pool_cls.assert_called_once()
+        mock_pool.open.assert_awaited_once()
+        mock_saver_cls.assert_called_once_with(mock_pool)
+        mock_saver.setup.assert_awaited_once()
+        assert result is mock_saver
+    finally:
+        cp_mod._pg_saver = None
+        cp_mod._pg_pool = None
+        cp_mod._memory_saver = None
 
 
 @pytest.mark.asyncio
 async def test_get_checkpointer_falls_back_to_memory_saver_when_libpq_missing() -> None:
+    import app.core.checkpointer as cp_mod
     from app.core.checkpointer import get_checkpointer
     from langgraph.checkpoint.memory import MemorySaver
+
+    # Ensure no cached Postgres saver from a prior test short-circuits this.
+    cp_mod._pg_saver = None
+    cp_mod._pg_pool = None
+    cp_mod._memory_saver = None
 
     # Setting the module to None in sys.modules causes ImportError on import.
     with patch.dict(sys.modules, {"langgraph.checkpoint.postgres.aio": None}):
